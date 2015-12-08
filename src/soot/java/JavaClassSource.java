@@ -20,9 +20,8 @@ public class JavaClassSource extends ClassSource {
 	public Dependencies resolve(SootClass sc) {
 		
 		List<Type> parameterTypes=new ArrayList<>();
-		parameterTypes.add(VoidType.v());
 		
-		sc.addMethod(new SootMethod("main",parameterTypes , VoidType.v()));
+		sc.addMethod(new SootMethod("main", parameterTypes , VoidType.v()));
 		sc.getMethodByName("main").setSource(new JavaMethodSource());
 		Dependencies deps=new Dependencies();
 		return deps;
