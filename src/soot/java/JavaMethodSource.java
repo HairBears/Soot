@@ -28,7 +28,7 @@ public class JavaMethodSource implements MethodSource {
 	public Body getBody(SootMethod m, String phaseName) {
 		JimpleBody jb = Jimple.v().newBody(m);
 		
-		
+		//test
 		//Funktion, gibt nur uebergebenen Wert zurueck
 		if (m.getName().equals("ret")) {
 			
