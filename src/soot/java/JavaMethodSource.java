@@ -9,7 +9,9 @@ import soot.Local;
 import soot.MethodSource;
 import soot.RefType;
 import soot.Scene;
+import soot.SootClass;
 import soot.SootMethod;
+import soot.Trap;
 import soot.Type;
 import soot.Unit;
 import soot.Value;
@@ -95,6 +97,13 @@ public class JavaMethodSource implements MethodSource {
 			
 			//Aufruf erst am Schluss ausfuehren
 			jb.getUnits().add(invoke);
+			
+			
+			//Trap
+			SootClass throwable=Scene.v().getSootClass("java.lang.Throwable");
+			
+			Trap trap=Jimple.v().newTrap(throwable, assignConst, assignLocals, handler);
+			jb.getTraps().add(trap);
 			
 			
 			//leeres return
