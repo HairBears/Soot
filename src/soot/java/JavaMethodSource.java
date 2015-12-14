@@ -49,6 +49,16 @@ public class JavaMethodSource implements MethodSource {
 		
 		}		
 		else {
+		if (m.getName().equals("r2")) {
+			Local returnLocal=new JimpleLocal("returnNumber",IntType.v());
+			IntConstant const3=IntConstant.v(3);
+			Unit assign=Jimple.v().newAssignStmt(returnLocal, const3);
+			Unit ret=Jimple.v().newReturnStmt(returnLocal);
+			jb.getLocals().add(returnLocal);
+			jb.getUnits().add(assign);
+			jb.getUnits().add(ret);
+		}
+		else {
 			Type integer=IntType.v();
 			
 			
@@ -71,9 +81,15 @@ public class JavaMethodSource implements MethodSource {
 			Unit refAssign=Jimple.v().newAssignStmt(refLocal, staticRef);
 			List<Type> parameterTypes=new ArrayList<>();
 			parameterTypes.add(integer);
-			Unit invoke=new JInvokeStmt(Jimple.v().newVirtualInvokeExpr(refLocal, Scene.v().makeMethodRef(Scene.v().getSootClass("java.io.PrintStream"), "println", parameterTypes, VoidType.v(), false), exampleLocal2));
+			Unit vinvoke=Jimple.v().newInvokeStmt((Jimple.v().newVirtualInvokeExpr(refLocal, Scene.v().makeMethodRef(Scene.v().getSootClass("java.io.PrintStream"), "println", parameterTypes, VoidType.v(), false), exampleLocal2)));
 			jb.getLocals().add(refLocal);
 			jb.getUnits().add(refAssign);
+			
+			
+			//staticInvoke
+			Value sInvokeValue=Jimple.v().newStaticInvokeExpr(m.getDeclaringClass().getMethodByName("r2").makeRef());
+			Unit assignStatic=Jimple.v().newAssignStmt(exampleLocal1, sInvokeValue);
+			jb.getUnits().add(assignStatic);
 			
 
 			
@@ -90,26 +106,27 @@ public class JavaMethodSource implements MethodSource {
 			Value truepart=Jimple.v().newAddExpr(exampleLocal2, const5);
 			Unit true2=Jimple.v().newAssignStmt(exampleLocal2, truepart);
 			Unit ifStmt=Jimple.v().newIfStmt(eq, true2);
-			Unit go=Jimple.v().newGotoStmt(invoke);
+			Unit go=Jimple.v().newGotoStmt(vinvoke);
 			jb.getUnits().add(ifStmt);
 			jb.getUnits().add(go);
 			jb.getUnits().add(true2);
 			
 			//Aufruf erst am Schluss ausfuehren
-			jb.getUnits().add(invoke);
+			jb.getUnits().add(vinvoke);
 			
 			
 			//Trap
 			SootClass throwable=Scene.v().getSootClass("java.lang.Throwable");
-			
-			Trap trap=Jimple.v().newTrap(throwable, assignConst, assignLocals, handler);
+			Trap trap=Jimple.v().newTrap(throwable, assignConst, assignLocals, vinvoke);
 			jb.getTraps().add(trap);
+			
+			
 			
 			
 			//leeres return
 			Unit ret=Jimple.v().newReturnVoidStmt();
 			jb.getUnits().add(ret);
-		}
+		}}
 		return jb;
 	}
 
