@@ -2,12 +2,15 @@ package soot.java;
 
 import soot.ClassProvider;
 import soot.ClassSource;
+import soot.SourceLocator;
 
 public class JavaClassProvider implements ClassProvider {
 	
-	// test whether the commits are working
 	public ClassSource find(String cls) {
 		
-		return new JavaClassSource(cls);
+	
+        String path =SourceLocator.v().classPath().get(0);
+		
+		return new JavaClassSource(cls,path);
 	}
 }

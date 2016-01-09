@@ -38,6 +38,7 @@ import java.util.zip.ZipFile;
 
 import soot.JavaClassProvider.JarException;
 import soot.asm.AsmClassProvider;
+import soot.dexpler.Util;
 import soot.options.Options;
 import soot.java.JavaClassProvider;
 
@@ -298,8 +299,11 @@ public class SourceLocator
 				}
 			}
 		}
-		else if (cst == ClassSourceType.java)
-			classes.add("HelloWorld");
+		else if (cst == ClassSourceType.java) {
+			int endIndex=aPath.lastIndexOf(".java");
+			int startIndex=aPath.lastIndexOf('\\')+1;
+			classes.add(aPath.substring(startIndex, endIndex));
+		}
 		else
 			throw new RuntimeException("Invalid class source type");
 		return classes;

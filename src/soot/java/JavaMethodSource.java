@@ -1,9 +1,14 @@
 package soot.java;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
+import com.sun.tools.javac.tree.JCTree;
+import com.sun.tools.javac.tree.JCTree.*;
+
 import soot.Body;
+import soot.CharType;
 import soot.IntType;
 import soot.Local;
 import soot.MethodSource;
@@ -16,6 +21,7 @@ import soot.Type;
 import soot.Unit;
 import soot.Value;
 import soot.VoidType;
+import soot.jimple.IfStmt;
 import soot.jimple.IntConstant;
 import soot.jimple.Jimple;
 import soot.jimple.JimpleBody;
@@ -23,14 +29,24 @@ import soot.jimple.internal.JInvokeStmt;
 import soot.jimple.internal.JimpleLocal;
 
 public class JavaMethodSource implements MethodSource {
+	
+	JCTree.JCBlock body;
+	HashMap<String,Local> locals=new HashMap<>();
+	ArrayList<Unit> units=new ArrayList<>();
+	
+	public JavaMethodSource(JCBlock body) {
+		this.body=body;
+	}
+	
 
 	@Override
 	public Body getBody(SootMethod m, String phaseName) {
 		JimpleBody jb = Jimple.v().newBody(m);
 		
-		//test
+		getMethodBody(body.stats);
+		
 		//Funktion, gibt nur uebergebenen Wert zurueck
-		if (m.getName().equals("ret")) {
+	/*	if (m.getName().equals("ret")) {
 			
 			//this-local
 			Local thisLocal=new JimpleLocal("thisLocal",m.getDeclaringClass().getType());
@@ -126,8 +142,144 @@ public class JavaMethodSource implements MethodSource {
 			//leeres return
 			Unit ret=Jimple.v().newReturnVoidStmt();
 			jb.getUnits().add(ret);
-		}}
+		}}	
+									*/
+		jb.getLocals().addAll(locals.values());
+		jb.getUnits().addAll(units);
+		
+		jb.getUnits().add(Jimple.v().newReturnVoidStmt()); //TODO ??
+		
 		return jb;
+	}
+	
+	private void getMethodBody(com.sun.tools.javac.util.List<JCStatement> stats) {
+		getHead(stats.head);
+		if (stats.tail!=null) {
+		getMethodBody(stats.tail);
+		}
+	}
+	
+	private void getHead(JCTree node) {
+		if (node instanceof JCVariableDecl)
+			addVariableDecl((JCVariableDecl)node);
+		if (node instanceof JCIf) 
+			addIf((JCIf)node);
+		if (node instanceof JCExpressionStatement)
+		if (((JCExpressionStatement)node).expr instanceof JCMethodInvocation)
+			addMethodInvocation((JCMethodInvocation)((JCExpressionStatement)node).expr);
+	}
+
+
+	private Unit addMethodInvocation(JCMethodInvocation node) {		//TODO
+		RefType ref=RefType.v("java.io.PrintStream");
+		Local refLocal=new JimpleLocal("out", ref);
+		Value staticRef=Jimple.v().newStaticFieldRef(Scene.v().makeFieldRef(Scene.v().getSootClass("java.lang.System"), "out", ref, true));
+		Unit refAssign=Jimple.v().newAssignStmt(refLocal, staticRef);
+		List<Type> parameterTypes=new ArrayList<>();
+		parameterTypes.add(IntType.v());
+		Unit methodinvoke=Jimple.v().newInvokeStmt((Jimple.v().newVirtualInvokeExpr(refLocal, Scene.v().makeMethodRef(Scene.v().getSootClass("java.io.PrintStream"), "println", parameterTypes, VoidType.v(), false), locals.get("a"))));
+		
+		locals.put(refLocal.getName(), refLocal);
+		units.add(refAssign);
+		units.add(methodinvoke);
+		return methodinvoke;
+	}
+
+
+	private Unit addIf(JCIf node) {
+		Value condition=getBinary((JCBinary)((JCParens)node.cond).expr);
+		
+		
+		Unit target=addAssign((JCAssign)((JCExpressionStatement)node.thenpart).expr);
+		IfStmt ifstmt=Jimple.v().newIfStmt(condition, target);
+		units.add(ifstmt);
+		Unit elsepart=null;
+		Unit target2=null;
+		if (node.elsepart!=null) {
+			target2=addAssign((JCAssign)((JCExpressionStatement)node.elsepart).expr);	
+			elsepart=Jimple.v().newGotoStmt(target2);
+			units.add(elsepart);
+		}
+		units.add(target);
+		if (node.elsepart!=null)
+			units.add(target2);
+		
+		return ifstmt;
+	}
+
+
+	private Unit addAssign(JCAssign node) {
+		Local var=locals.get(((JCIdent)node.lhs).toString());
+		Value right=getBinary((JCBinary)node.rhs);
+		Unit assign=Jimple.v().newAssignStmt(var, right);
+	//	units.add(assign);
+		return assign;
+	}
+
+
+	private Unit addVariableDecl(JCVariableDecl node) {
+		Local newLocal=new JimpleLocal(node.name.toString(),getType((JCPrimitiveTypeTree)node.vartype));
+		Value con;
+		if (node.init instanceof JCLiteral) {
+			con=IntConstant.v((int)((JCLiteral)node.init).value);
+		}
+		else
+		{
+			con=getBinary((JCBinary)node.init);
+		}
+		Unit assign=Jimple.v().newAssignStmt(newLocal, con);
+		locals.put(newLocal.getName(),newLocal);
+		units.add(assign);
+		return assign;
+	}
+	
+	private Value getBinary(JCBinary init) {
+		Value left;
+		Value right;
+		if (init.lhs instanceof JCBinary){
+			left=getBinary((JCBinary)init.lhs);
+		}
+		else if (init.lhs instanceof JCIdent)
+		{
+			left=locals.get(((JCIdent)init.lhs).toString());
+		}
+		else
+		{
+			left=IntConstant.v((int)((JCLiteral)init.lhs).value);
+		}
+		
+		if (init.rhs instanceof JCBinary) {
+			right=getBinary((JCBinary)init.rhs);
+		}
+		else if (init.rhs instanceof JCIdent) {
+			right=locals.get(((JCIdent)init.rhs).toString());
+		}
+		else
+		{
+			right=IntConstant.v((int)((JCLiteral)init.rhs).value);
+		}
+		String a=init.toString();
+		int index=a.lastIndexOf(" ");
+		if (a.charAt(index-1)=='+')
+			return Jimple.v().newAddExpr(left, right);
+		else if (a.charAt(index-1)=='*')
+			return Jimple.v().newMulExpr(left, right);
+		else if (a.charAt(index-1)=='<')
+			return Jimple.v().newLtExpr(left, right);
+		else
+			return null;
+	}
+
+
+	
+
+
+	private Type getType (JCPrimitiveTypeTree node) {
+		if (node.typetag.name().equals("INT"))
+			return IntType.v();
+		if (node.typetag.name().equals("CHAR"))
+			return CharType.v();
+		return null;
 	}
 
 }
