@@ -42,9 +42,13 @@ import soot.jimple.internal.JimpleLocal;
 
 public class JavaMethodSource implements MethodSource {
 	
+	//Saving complete method-tree
 	JCTree.JCBlock body;
+	//Saving locals, easier to find with name
 	HashMap<String,Local> locals=new HashMap<>();
+	//Saving units
 	ArrayList<Unit> units=new ArrayList<>();
+	//Counter used to name variables that are only used in jimple-part
 	int varCount=0;
 	
 	public JavaMethodSource(JCBlock body) {
@@ -165,6 +169,10 @@ public class JavaMethodSource implements MethodSource {
 		return jb;
 	}
 	
+	/*
+	 * Part unit-list into next unit and list of other units
+	 * @param stats	list of units
+	 */
 	private void getMethodBody(com.sun.tools.javac.util.List<JCStatement> stats) {
 		getHead(stats.head);
 		if (stats.tail!=null) {
@@ -172,12 +180,16 @@ public class JavaMethodSource implements MethodSource {
 		}
 	}
 	
+	/*
+	 * Check what kind of node the parameter is
+	 * @param node	current node to translate
+	 * @return 		node translated to jimple-unit
+	 */
 	private Unit getHead(JCTree node) {
 		if (node instanceof JCVariableDecl)
 			return addVariableDecl((JCVariableDecl)node);
 		if (node instanceof JCIf) 
 			return addIf((JCIf)node);
-		
 		if (node instanceof JCExpressionStatement){
 			if (((JCExpressionStatement)node).expr instanceof JCMethodInvocation)
 				return addMethodInvocation((JCMethodInvocation)((JCExpressionStatement)node).expr);
@@ -189,6 +201,11 @@ public class JavaMethodSource implements MethodSource {
 		return null;
 	}
 
+	/*
+	 * Check what value the node has
+	 * @param node	node with a value
+	 * @return		value translated to jimple-value
+	 */
 	private Value getValue(JCTree node) {
 		if (node instanceof JCBinary)
 			return getBinary((JCBinary)node);
@@ -199,6 +216,7 @@ public class JavaMethodSource implements MethodSource {
 		return null;		//TODO
 	}
 
+	
 	private Unit addMethodInvocation(JCMethodInvocation node) {		//TODO
 		RefType ref=RefType.v("java.io.PrintStream");
 		Local refLocal=new JimpleLocal("out", ref);
@@ -215,6 +233,11 @@ public class JavaMethodSource implements MethodSource {
 	}
 
 //TODO
+	/*
+	 * Translate if-statement from tree to jimple
+	 * @param node	node containing information for if-statement
+	 * @return		if-statement in jimple
+	 */
 	private Unit addIf(JCIf node) {
 		Value condition=getBinary((JCBinary)((JCParens)node.cond).expr);
 		Unit target=getHead(node.thenpart);
@@ -234,7 +257,11 @@ public class JavaMethodSource implements MethodSource {
 		return ifstmt;
 	}
 
-
+	/*
+	 * Translate assign-statement from tree to jimple
+	 * @param node	node containing information for assign-statement
+	 * @return 		assign-statement in jimple
+	 */
 	private Unit addAssign(JCAssign node) {
 		Local var=locals.get(((JCIdent)node.lhs).toString());
 		Value right=getValue(node.rhs);
@@ -242,10 +269,12 @@ public class JavaMethodSource implements MethodSource {
 		units.add(assign);
 		return assign;
 	}
-	
-	
 
-
+	/*
+	 * Translate variable declaration from tree to jimple
+	 * @param node	node containing information for variable declaration
+	 * @return 		if variable is assigned instantly, return assign-statement, else return null
+	 */
 	private Unit addVariableDecl(JCVariableDecl node) {
 		Local newLocal=new JimpleLocal(node.name.toString(),getType((JCPrimitiveTypeTree)node.vartype));
 		Value con=getValue(node.init);
@@ -260,6 +289,11 @@ public class JavaMethodSource implements MethodSource {
 			return null;
 	}
 	
+	/*
+	 * Break combined operations into binary expression and assign
+	 * @param node	node containing variable, operation and one other value
+	 * @return		combined operation as normal assign-statement
+	 */
 	private Unit addAssignOp(JCAssignOp node) {
 		Local var=locals.get(((JCIdent)node.lhs).toString());
 		Value binary;
@@ -294,6 +328,11 @@ public class JavaMethodSource implements MethodSource {
 		return assign;
 	}
 	
+	/*
+	 * Translate binary operations from tree to jimple
+	 * @param node	node containing the binary operation
+	 * @return		binary operation in jimple
+	 */
 	private Value getBinary(JCBinary node) {
 		Value left=checkBinary(getValue(node.lhs));
 		Value right=checkBinary(getValue(node.rhs));
@@ -337,6 +376,11 @@ public class JavaMethodSource implements MethodSource {
 			return null;
 	}
 
+	/*
+	 * Checks, which type the node has
+	 * @param node	node with a simple type
+	 * @return		matching jimple-type
+	 */
 	private Type getType (JCPrimitiveTypeTree node) {
 		if (node.typetag.name().equals("INT"))
 			return IntType.v();
@@ -357,6 +401,11 @@ public class JavaMethodSource implements MethodSource {
 		return null;
 	}
 	
+	/*
+	 * Translate number into jimple-constant
+	 * @param node	node containing the value
+	 * @return		matching jimple-constant with value
+	 */
 	private Constant getConstant(JCLiteral node) {
 		if (node.typetag.name().equals("INT"))
 			return IntConstant.v((int)node.value);
@@ -369,6 +418,12 @@ public class JavaMethodSource implements MethodSource {
 		return NullConstant.v();
 	}
 	
+	/*
+	 * Checks, if the value is a binary operation. 
+	 * If yes, create a new jimple-local to save the interim result
+	 * @param val	value to check
+	 * @return		the new jimple-local or the value from the parameter
+	 */
 	private Value checkBinary(Value val) {
 		if (val instanceof BinopExpr) {
 			while (locals.get("var"+varCount)!=null)
