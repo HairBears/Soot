@@ -20,9 +20,7 @@ import soot.MethodSource;
 import soot.RefType;
 import soot.Scene;
 import soot.ShortType;
-import soot.SootClass;
 import soot.SootMethod;
-import soot.Trap;
 import soot.Type;
 import soot.Unit;
 import soot.Value;
@@ -37,13 +35,13 @@ import soot.jimple.Jimple;
 import soot.jimple.JimpleBody;
 import soot.jimple.LongConstant;
 import soot.jimple.NullConstant;
-import soot.jimple.internal.JInvokeStmt;
+import soot.jimple.ReturnStmt;
 import soot.jimple.internal.JimpleLocal;
 
 public class JavaMethodSource implements MethodSource {
 	
 	//Saving complete method-tree
-	JCTree.JCBlock body;
+	JCMethodDecl meth;
 	//Saving locals, easier to find with name
 	HashMap<String,Local> locals=new HashMap<>();
 	//Saving units
@@ -51,16 +49,16 @@ public class JavaMethodSource implements MethodSource {
 	//Counter used to name variables that are only used in jimple-part
 	int varCount=0;
 	
-	public JavaMethodSource(JCBlock body) {
-		this.body=body;
+	public JavaMethodSource(JCMethodDecl body) {
+		this.meth=body;
 	}
 	
 
 	@Override
 	public Body getBody(SootMethod m, String phaseName) {
 		JimpleBody jb = Jimple.v().newBody(m);
-		
-		getMethodBody(body.stats);
+		getParameter(m, meth.params);
+		getMethodBody(meth.body.stats);
 		
 		//Funktion, gibt nur uebergebenen Wert zurueck
 	/*	if (m.getName().equals("ret")) {
@@ -161,26 +159,27 @@ public class JavaMethodSource implements MethodSource {
 			jb.getUnits().add(ret);
 		}}	
 									*/
+		
 		jb.getLocals().addAll(locals.values());
 		jb.getUnits().addAll(units);
-		
-		jb.getUnits().add(Jimple.v().newReturnVoidStmt()); //TODO ??
+		if (!(units.get(units.size()-1) instanceof ReturnStmt))
+			jb.getUnits().add(Jimple.v().newReturnVoidStmt()); //TODO ??
 		
 		return jb;
 	}
 	
-	/*
+	/**
 	 * Part unit-list into next unit and list of other units
 	 * @param stats	list of units
 	 */
-	private void getMethodBody(com.sun.tools.javac.util.List<JCStatement> stats) {
-		getHead(stats.head);
-		if (stats.tail!=null) {
-		getMethodBody(stats.tail);
-		}
+	private Unit getMethodBody(com.sun.tools.javac.util.List<JCStatement> stats) {
+		Unit ret=getHead(stats.head);
+		if (stats.tail!=null)
+			getMethodBody(stats.tail);
+		return ret;
 	}
 	
-	/*
+	/**
 	 * Check what kind of node the parameter is
 	 * @param node	current node to translate
 	 * @return 		node translated to jimple-unit
@@ -190,6 +189,14 @@ public class JavaMethodSource implements MethodSource {
 			return addVariableDecl((JCVariableDecl)node);
 		if (node instanceof JCIf) 
 			return addIf((JCIf)node);
+		if (node instanceof JCDoWhileLoop)
+			return addDoWhile((JCDoWhileLoop)node);
+		if (node instanceof JCWhileLoop)
+			return addWhile((JCWhileLoop)node);
+		if (node instanceof JCReturn)
+			return addReturn((JCReturn)node);
+		if (node instanceof JCForLoop)
+			return addFor((JCForLoop)node);
 		if (node instanceof JCExpressionStatement){
 			if (((JCExpressionStatement)node).expr instanceof JCMethodInvocation)
 				return addMethodInvocation((JCMethodInvocation)((JCExpressionStatement)node).expr);
@@ -201,7 +208,7 @@ public class JavaMethodSource implements MethodSource {
 		return null;
 	}
 
-	/*
+	/**
 	 * Check what value the node has
 	 * @param node	node with a value
 	 * @return		value translated to jimple-value
@@ -213,18 +220,22 @@ public class JavaMethodSource implements MethodSource {
 			return locals.get(((JCIdent)node).toString());
 		if (node instanceof JCLiteral)
 			return getConstant((JCLiteral) node);
+	//	if (node instanceof JCUnary)
+	//TODO		return getUnary((JCUnary)node);
 		return null;		//TODO
 	}
 
 	
 	private Unit addMethodInvocation(JCMethodInvocation node) {		//TODO
 		RefType ref=RefType.v("java.io.PrintStream");
-		Local refLocal=new JimpleLocal("out", ref);
+		while (locals.get("i"+varCount)!=null)
+			varCount++;
+		Local refLocal=new JimpleLocal("i"+(varCount++), ref);
 		Value staticRef=Jimple.v().newStaticFieldRef(Scene.v().makeFieldRef(Scene.v().getSootClass("java.lang.System"), "out", ref, true));
 		Unit refAssign=Jimple.v().newAssignStmt(refLocal, staticRef);
 		List<Type> parameterTypes=new ArrayList<>();
 		parameterTypes.add(IntType.v());
-		Unit methodinvoke=Jimple.v().newInvokeStmt((Jimple.v().newVirtualInvokeExpr(refLocal, Scene.v().makeMethodRef(Scene.v().getSootClass("java.io.PrintStream"), "println", parameterTypes, VoidType.v(), false), locals.get("var1"))));
+		Unit methodinvoke=Jimple.v().newInvokeStmt((Jimple.v().newVirtualInvokeExpr(refLocal, Scene.v().makeMethodRef(Scene.v().getSootClass("java.io.PrintStream"), "println", parameterTypes, VoidType.v(), false), checkBinary(getValue(node.args.head)))));
 		
 		locals.put(refLocal.getName(), refLocal);
 		units.add(refAssign);
@@ -233,16 +244,18 @@ public class JavaMethodSource implements MethodSource {
 	}
 
 //TODO
-	/*
+	/**
 	 * Translate if-statement from tree to jimple
 	 * @param node	node containing information for if-statement
 	 * @return		if-statement in jimple
 	 */
 	private Unit addIf(JCIf node) {
-		Value condition=getBinary((JCBinary)((JCParens)node.cond).expr);
-		Unit target=getHead(node.thenpart);
+		Value condition=getValue(((JCParens)node.cond).expr);
+		Unit target=noBlock(node.thenpart);
 		IfStmt ifstmt=Jimple.v().newIfStmt(condition, target);
+		units.remove(target);
 		units.add(ifstmt);
+		
 		Unit elsepart=null;
 		Unit target2=null;
 		if (node.elsepart!=null) {
@@ -250,14 +263,74 @@ public class JavaMethodSource implements MethodSource {
 			elsepart=Jimple.v().newGotoStmt(target2);
 			units.add(elsepart);
 		}
-	//	units.add(target);
-	//	if (node.elsepart!=null)
-	//		units.add(target2);
-		
+		units.add(target);
 		return ifstmt;
 	}
 
-	/*
+	/**
+	 * Translate a do-while-loop into a if-jump-loop
+	 * @param node	node containing do-while-loop
+	 * @return		if-statement at the end
+	 */
+	private Unit addDoWhile(JCDoWhileLoop node) {
+		Value condition=getValue(((JCParens)node.cond).expr);
+		Unit target=noBlock(node.body);
+		IfStmt ifstmt=Jimple.v().newIfStmt(condition, target);
+		units.add(ifstmt);
+		return ifstmt;
+	}
+	
+	/**
+	 * Translate while-loop into a if-jump-loop
+	 * @param node	node containing while-loop
+	 * @return		initial jump-statement
+	 */
+	private Unit addWhile(JCWhileLoop node) {
+		Value condition=getValue(((JCParens)node.cond).expr);
+		Unit target=noBlock(node.body);
+		IfStmt ifstmt=Jimple.v().newIfStmt(condition, target);
+		Unit jump=Jimple.v().newGotoStmt(ifstmt);
+		units.add(jump);
+		units.remove(target);
+		units.add(target);
+		units.add(ifstmt);
+		return jump;
+	}
+	
+	/**
+	 * Translate a for-loop into a if-jump-loop with counter
+	 * @param node	node containing for-loop
+	 * @return		initial declaration for the counter
+	 */
+	private Unit addFor(JCForLoop node) {
+		Unit counter=addVariableDecl((JCVariableDecl)node.init.head);	//TODO 1. List, 2. nicht unbedingt VariableDecl
+		Value condition=getValue(node.cond);
+		Unit target=noBlock(node.body);
+		IfStmt ifstmt=Jimple.v().newIfStmt(condition, target);
+		Unit jump=Jimple.v().newGotoStmt(ifstmt);
+		Unit step=getHead(node.step.head); //TODO List<JCExpressionStatement>
+		units.add(jump);
+		units.remove(target);
+		units.add(target);
+		units.remove(step);
+		units.add(step);
+		units.add(ifstmt);
+		return counter;
+	}
+	
+	/**
+	 * Translate return-statement from tree to jimple
+	 * @param node	node containing information for return-statement
+	 * @return		return-statement in jimple
+	 */
+	private Unit addReturn (JCReturn node) {
+		Value value=checkBinary(getValue(node.expr));
+		Unit returnStmt=Jimple.v().newReturnStmt(value);
+		units.add(returnStmt);
+		return returnStmt;
+	}
+	
+	/**
 	 * Translate assign-statement from tree to jimple
 	 * @param node	node containing information for assign-statement
 	 * @return 		assign-statement in jimple
@@ -270,7 +343,7 @@ public class JavaMethodSource implements MethodSource {
 		return assign;
 	}
 
-	/*
+	/**
 	 * Translate variable declaration from tree to jimple
 	 * @param node	node containing information for variable declaration
 	 * @return 		if variable is assigned instantly, return assign-statement, else return null
@@ -289,7 +362,7 @@ public class JavaMethodSource implements MethodSource {
 			return null;
 	}
 	
-	/*
+	/**
 	 * Break combined operations into binary expression and assign
 	 * @param node	node containing variable, operation and one other value
 	 * @return		combined operation as normal assign-statement
@@ -328,7 +401,7 @@ public class JavaMethodSource implements MethodSource {
 		return assign;
 	}
 	
-	/*
+	/**
 	 * Translate binary operations from tree to jimple
 	 * @param node	node containing the binary operation
 	 * @return		binary operation in jimple
@@ -375,8 +448,18 @@ public class JavaMethodSource implements MethodSource {
 		else
 			return null;
 	}
+	
+	private Value getUnary(JCUnary node) {
+		Value value=getValue(((JCParens)node.arg).expr);
+		String findOperator=node.toString();
+		if (findOperator.charAt(0)=='!')
+			return Jimple.v().newNegExpr(checkBinary(value));
+		if (findOperator.charAt(findOperator.length()-2)=='+'&&findOperator.charAt(findOperator.length()-1)=='+')
+			return null; //TODO
+		return null;
+	}
 
-	/*
+	/**
 	 * Checks, which type the node has
 	 * @param node	node with a simple type
 	 * @return		matching jimple-type
@@ -401,7 +484,7 @@ public class JavaMethodSource implements MethodSource {
 		return null;
 	}
 	
-	/*
+	/**
 	 * Translate number into jimple-constant
 	 * @param node	node containing the value
 	 * @return		matching jimple-constant with value
@@ -418,7 +501,7 @@ public class JavaMethodSource implements MethodSource {
 		return NullConstant.v();
 	}
 	
-	/*
+	/**
 	 * Checks, if the value is a binary operation. 
 	 * If yes, create a new jimple-local to save the interim result
 	 * @param val	value to check
@@ -426,9 +509,9 @@ public class JavaMethodSource implements MethodSource {
 	 */
 	private Value checkBinary(Value val) {
 		if (val instanceof BinopExpr) {
-			while (locals.get("var"+varCount)!=null)
+			while (locals.get("i"+varCount)!=null)
 				varCount++;
-			Local newLocal=new JimpleLocal("var"+(varCount++),val.getType());
+			Local newLocal=new JimpleLocal("i"+(varCount++),val.getType());
 			locals.put(newLocal.getName(),newLocal);
 			Unit assign=Jimple.v().newAssignStmt(newLocal, val);
 			units.add(assign);
@@ -436,6 +519,44 @@ public class JavaMethodSource implements MethodSource {
 		}
 		else
 			return val;
+	}
+	
+	/**
+	 * Transform all parameters into locals. If the method isn't static, add a this-local
+	 * @param m			soot-method containing information of the class, used for this-local
+	 * @param params	list of all parameters
+	 */
+	private void getParameter(SootMethod m,com.sun.tools.javac.util.List<JCVariableDecl> params) {
+		if (!meth.mods.toString().contains("static")) {
+			Local thisLocal=new JimpleLocal("thisLocal",m.getDeclaringClass().getType());
+			Unit thisIdent=Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(m.getDeclaringClass().getType()));
+			locals.put("thisLocal", thisLocal);
+			units.add(thisIdent);
+		}
+		int paramcount=0;
+		while(params.head!=null&&!(params.head.vartype instanceof JCArrayTypeTree)) {	//TODO instanceof wegmachen, array in body hinzufuegen
+			Value parameter=Jimple.v().newParameterRef(getType((JCPrimitiveTypeTree)params.head.vartype), paramcount++);
+			Local paramLocal=new JimpleLocal(params.head.name.toString(),getType((JCPrimitiveTypeTree)params.head.vartype));
+			Unit assign=Jimple.v().newIdentityStmt(paramLocal, parameter);
+			locals.put(paramLocal.getName(), paramLocal);
+			units.add(assign);
+			params=params.tail;
+		}
+			
+	}
+	
+	/**
+	 * If the node is a block, transform it into single statements
+	 * @param node	node containing the block or a single statement
+	 * @return		either the first statement of the block or the only statement
+	 */
+	private Unit noBlock(JCTree node) {
+		if (node instanceof JCBlock) {
+			return getMethodBody(((JCBlock) node).stats);
+		}
+		else
+			return getHead(node);
+		
 	}
 
 }

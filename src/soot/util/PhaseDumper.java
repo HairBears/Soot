@@ -360,7 +360,7 @@ public class PhaseDumper {
      *
      * @param g the graph to dump.
      *
-     * @param body the {@link Body} represented by <code>g</code>.
+     * @param methDecl the {@link Body} represented by <code>g</code>.
      */
     public void dumpGraph(DirectedGraph g, Body b) {
 	if (alreadyDumping) {
