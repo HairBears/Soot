@@ -1367,7 +1367,7 @@ final class AsmMethodSource implements MethodSource {
 			targets.add(box);
 			labels.put(ln, box);
 		}
-		TableSwitchStmt tss = Jimple.v().newTableSwitchStmt(key.stackOrValue(),
+ 		TableSwitchStmt tss = Jimple.v().newTableSwitchStmt(key.stackOrValue(),
 				insn.min, insn.max, targets, dflt);
 		key.addBox(tss.getKeyBox());
 		frame.in(key);

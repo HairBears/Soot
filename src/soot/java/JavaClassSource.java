@@ -56,7 +56,9 @@ public class JavaClassSource extends ClassSource {
 		*/
 		String text="";
 		try {
-			text = new Scanner( new File(path) ).useDelimiter("\\A").next();
+			Scanner scanner = new Scanner( new File(path) );
+			text = scanner.useDelimiter("\\A").next();
+			scanner.close();
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
 		}
@@ -97,7 +99,10 @@ public class JavaClassSource extends ClassSource {
 		sc.getMethodByName("main").setSource(new JavaMethodSource());
 		*/
 		Dependencies deps=new Dependencies();
+		deps.typesToSignature.add(RefType.v("java.lang.System"));
 		deps.typesToSignature.add(RefType.v("java.io.PrintStream"));
+		deps.typesToSignature.add(RefType.v("java.lang.Boolean"));
+		deps.typesToSignature.add(RefType.v("java.lang.String"));
 		return deps;
 	}
 	
