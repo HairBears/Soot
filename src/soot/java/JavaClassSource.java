@@ -10,12 +10,17 @@ import com.sun.tools.javac.file.JavacFileManager;
 import com.sun.tools.javac.parser.JavacParser;
 import com.sun.tools.javac.parser.ParserFactory;
 import com.sun.tools.javac.tree.JCTree;
+import com.sun.tools.javac.tree.JCTree.JCArrayTypeTree;
 import com.sun.tools.javac.tree.JCTree.JCCompilationUnit;
+import com.sun.tools.javac.tree.JCTree.JCIdent;
+import com.sun.tools.javac.tree.JCTree.JCImport;
+import com.sun.tools.javac.tree.JCTree.JCMethodDecl;
 import com.sun.tools.javac.tree.JCTree.JCModifiers;
 import com.sun.tools.javac.tree.JCTree.JCPrimitiveTypeTree;
 import com.sun.tools.javac.tree.JCTree.JCVariableDecl;
 import com.sun.tools.javac.util.Context;
 
+import soot.ArrayType;
 import soot.BooleanType;
 import soot.ByteType;
 import soot.CharType;
@@ -36,6 +41,8 @@ import soot.javaToJimple.IInitialResolver.Dependencies;
 
 public class JavaClassSource extends ClassSource {
 	
+	
+	
 	String path;
 
 	public JavaClassSource(String className, String path) {
@@ -54,6 +61,8 @@ public class JavaClassSource extends ClassSource {
 		List<SootClass> exceptions=new ArrayList<>();
 		exceptions.add(SootResolver.v().makeClassRef("java.lang.NullPointerException"));
 		*/
+		
+		//Scanning the file and creating an abstract syntax tree
 		String text="";
 		try {
 			Scanner scanner = new Scanner( new File(path) );
@@ -68,13 +77,22 @@ public class JavaClassSource extends ClassSource {
 		JavacParser parser=parserFactory.newParser(text, false,false,false);
 		JCCompilationUnit jccu=parser.parseCompilationUnit();
 		jfm.close();
-		JCTree classDecl=jccu.defs.head;
-		JCTree.JCMethodDecl method;
+		Dependencies deps=new Dependencies();
 		
 		
-		com.sun.tools.javac.util.List<JCTree> list = ((JCTree.JCClassDecl) classDecl).defs;
 		
+		com.sun.tools.javac.util.List<JCTree> classDecl = jccu.defs;
 		
+		//Add all imports as dependencies
+		while (classDecl.head instanceof JCImport) {
+			deps.typesToSignature.add(RefType.v(((JCImport)classDecl.head).qualid.toString()));
+			classDecl=classDecl.tail;
+		}
+		
+		JCMethodDecl method;
+		com.sun.tools.javac.util.List<JCTree> list = ((JCTree.JCClassDecl) classDecl.head).defs;
+		
+		//Add all methods in this class
 		while (list.head!=null) {
 			method=(JCTree.JCMethodDecl)list.head;
 			List<Type> parameterTypes=new ArrayList<>();
@@ -86,7 +104,7 @@ public class JavaClassSource extends ClassSource {
 				paramlist=paramlist.tail;
 			}
 			
-			sc.addMethod(new SootMethod(method.name.toString(), parameterTypes, getType((JCPrimitiveTypeTree)method.restype), getModifiers((JCModifiers)method.mods)));
+			sc.addMethod(new SootMethod(method.name.toString(), parameterTypes, getType(method.restype), getModifiers((JCModifiers)method.mods)));
 			sc.getMethodByName(method.name.toString()).setSource(new JavaMethodSource(method));	
 			list=list.tail;
 		}
@@ -98,7 +116,11 @@ public class JavaClassSource extends ClassSource {
 		sc.addMethod(new SootMethod("main", parameterTypes , VoidType.v(),Modifier.STATIC));
 		sc.getMethodByName("main").setSource(new JavaMethodSource());
 		*/
-		Dependencies deps=new Dependencies();
+		
+		//Add standard-libraries as dependencies
+		deps.typesToSignature.add(RefType.v("java.lang.Object"));
+		deps.typesToSignature.add(RefType.v("java.lang.Serializable"));
+		deps.typesToSignature.add(RefType.v("java.lang.Throwable"));
 		deps.typesToSignature.add(RefType.v("java.lang.System"));
 		deps.typesToSignature.add(RefType.v("java.io.PrintStream"));
 		deps.typesToSignature.add(RefType.v("java.lang.Boolean"));
@@ -106,30 +128,44 @@ public class JavaClassSource extends ClassSource {
 		return deps;
 	}
 	
+	/**
+	 * Checks, which type the parameter has
+	 * @param node	node with a simple type
+	 * @return		matching jimple-type
+	 */
 	private Type getType (JCTree node) {
 		if (node instanceof JCPrimitiveTypeTree) {
-		if (((JCPrimitiveTypeTree)node).typetag.name().equals("INT"))
-			return IntType.v();
-		if (((JCPrimitiveTypeTree)node).typetag.name().equals("CHAR"))
-			return CharType.v();
-		if (((JCPrimitiveTypeTree)node).typetag.name().equals("BOOLEAN"))
-			return BooleanType.v();
-		if (((JCPrimitiveTypeTree)node).typetag.name().equals("BYTE"))
-			return ByteType.v();
-		if (((JCPrimitiveTypeTree)node).typetag.name().equals("DOUBLE"))
-			return DoubleType.v();
-		if (((JCPrimitiveTypeTree)node).typetag.name().equals("FLOAT"))
-			return FloatType.v();
-		if (((JCPrimitiveTypeTree)node).typetag.name().equals("LONG"))
-			return LongType.v();
-		if (((JCPrimitiveTypeTree)node).typetag.name().equals("SHORT"))
-			return ShortType.v();
-		if (((JCPrimitiveTypeTree)node).typetag.name().equals("VOID"))
-			return VoidType.v();
+			if (((JCPrimitiveTypeTree)node).typetag.name().equals("INT"))
+				return IntType.v();
+			if (((JCPrimitiveTypeTree)node).typetag.name().equals("CHAR"))
+				return CharType.v();
+			if (((JCPrimitiveTypeTree)node).typetag.name().equals("BOOLEAN"))
+				return BooleanType.v();
+			if (((JCPrimitiveTypeTree)node).typetag.name().equals("BYTE"))
+				return ByteType.v();
+			if (((JCPrimitiveTypeTree)node).typetag.name().equals("DOUBLE"))
+				return DoubleType.v();
+			if (((JCPrimitiveTypeTree)node).typetag.name().equals("FLOAT"))
+				return FloatType.v();
+			if (((JCPrimitiveTypeTree)node).typetag.name().equals("LONG"))
+				return LongType.v();
+			if (((JCPrimitiveTypeTree)node).typetag.name().equals("SHORT"))
+				return ShortType.v();
+			if (((JCPrimitiveTypeTree)node).typetag.name().equals("VOID"))
+				return VoidType.v();
 		}
-		return null;	//TODO
+		if (node instanceof JCArrayTypeTree)
+			return ArrayType.v(getType(((JCArrayTypeTree)node).elemtype), node.toString().replace(((JCArrayTypeTree)node).elemtype.toString(), "").length()/2);
+		if (node instanceof JCIdent)
+			return RefType.v("java.lang."+node.toString());	//TODO
+		return null;	//TODO Klassen als Type
 	}
 	
+	/**
+	 * Get all modifiers used for the methods
+	 * @param mods	node containing all modifiers
+	 * @return		modifiers combined in integer
+	 */
 	private int getModifiers(JCModifiers mods) {
 		int modsum=0;
 		String modString=mods.toString();
