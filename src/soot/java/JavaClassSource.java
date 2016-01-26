@@ -10,39 +10,24 @@ import com.sun.tools.javac.file.JavacFileManager;
 import com.sun.tools.javac.parser.JavacParser;
 import com.sun.tools.javac.parser.ParserFactory;
 import com.sun.tools.javac.tree.JCTree;
-import com.sun.tools.javac.tree.JCTree.JCArrayTypeTree;
 import com.sun.tools.javac.tree.JCTree.JCCompilationUnit;
-import com.sun.tools.javac.tree.JCTree.JCIdent;
 import com.sun.tools.javac.tree.JCTree.JCImport;
 import com.sun.tools.javac.tree.JCTree.JCMethodDecl;
 import com.sun.tools.javac.tree.JCTree.JCModifiers;
-import com.sun.tools.javac.tree.JCTree.JCPrimitiveTypeTree;
 import com.sun.tools.javac.tree.JCTree.JCVariableDecl;
 import com.sun.tools.javac.util.Context;
 
-import soot.ArrayType;
-import soot.BooleanType;
-import soot.ByteType;
-import soot.CharType;
 import soot.ClassSource;
-import soot.DoubleType;
-import soot.FloatType;
-import soot.IntType;
-import soot.LongType;
 import soot.Modifier;
 import soot.RefType;
-import soot.ShortType;
 import soot.SootClass;
 import soot.SootMethod;
-import soot.SootResolver;
 import soot.Type;
-import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
 
 public class JavaClassSource extends ClassSource {
 	
-	
-	
+	//Path to java class file
 	String path;
 
 	public JavaClassSource(String className, String path) {
@@ -52,15 +37,6 @@ public class JavaClassSource extends ClassSource {
 
 	@Override
 	public Dependencies resolve(SootClass sc) {
-		
-		
-		/*
-		List<Type> parameterTypes=new ArrayList<>();
-		List<Type> parameterTypesInt=new ArrayList<>();
-		parameterTypesInt.add(IntType.v());
-		List<SootClass> exceptions=new ArrayList<>();
-		exceptions.add(SootResolver.v().makeClassRef("java.lang.NullPointerException"));
-		*/
 		
 		//Scanning the file and creating an abstract syntax tree
 		String text="";
@@ -77,9 +53,8 @@ public class JavaClassSource extends ClassSource {
 		JavacParser parser=parserFactory.newParser(text, false,false,false);
 		JCCompilationUnit jccu=parser.parseCompilationUnit();
 		jfm.close();
+		
 		Dependencies deps=new Dependencies();
-		
-		
 		
 		com.sun.tools.javac.util.List<JCTree> classDecl = jccu.defs;
 		
@@ -88,6 +63,13 @@ public class JavaClassSource extends ClassSource {
 			deps.typesToSignature.add(RefType.v(((JCImport)classDecl.head).qualid.toString()));
 			classDecl=classDecl.tail;
 		}
+		deps.typesToSignature.add(RefType.v("java.lang.Object"));			//TODO suche in methoden nach noetigen imports
+		deps.typesToSignature.add(RefType.v("java.lang.Serializable"));
+		deps.typesToSignature.add(RefType.v("java.lang.Throwable"));
+		deps.typesToSignature.add(RefType.v("java.lang.System"));
+		deps.typesToSignature.add(RefType.v("java.io.PrintStream"));
+		deps.typesToSignature.add(RefType.v("java.lang.Boolean"));
+		deps.typesToSignature.add(RefType.v("java.lang.String"));
 		
 		JCMethodDecl method;
 		com.sun.tools.javac.util.List<JCTree> list = ((JCTree.JCClassDecl) classDecl.head).defs;
@@ -98,68 +80,20 @@ public class JavaClassSource extends ClassSource {
 			List<Type> parameterTypes=new ArrayList<>();
 			com.sun.tools.javac.util.List<JCVariableDecl> paramlist=method.params;
 			while (paramlist.head!=null) {
-				Type type=getType(paramlist.head.vartype);
+				Type type=JavaUtil.getType(paramlist.head.vartype,deps);
 				if (type!=null)
 					parameterTypes.add(type);
 				paramlist=paramlist.tail;
 			}
 			
-			sc.addMethod(new SootMethod(method.name.toString(), parameterTypes, getType(method.restype), getModifiers((JCModifiers)method.mods)));
-			sc.getMethodByName(method.name.toString()).setSource(new JavaMethodSource(method));	
+			sc.addMethod(new SootMethod(method.name.toString(), parameterTypes, JavaUtil.getType(method.restype,deps), getModifiers((JCModifiers)method.mods)));
+			sc.getMethodByName(method.name.toString()).setSource(new JavaMethodSource(method, deps));	
 			list=list.tail;
 		}
 	
-		/*sc.addMethod(new SootMethod("r2",parameterTypes,IntType.v(),Modifier.STATIC,exceptions));
-		sc.getMethodByName("r2").setSource(new JavaMethodSource());
-		sc.addMethod(new SootMethod("ret",parameterTypesInt,IntType.v()));
-		sc.getMethodByName("ret").setSource(new JavaMethodSource());
-		sc.addMethod(new SootMethod("main", parameterTypes , VoidType.v(),Modifier.STATIC));
-		sc.getMethodByName("main").setSource(new JavaMethodSource());
-		*/
-		
-		//Add standard-libraries as dependencies
-		deps.typesToSignature.add(RefType.v("java.lang.Object"));
-		deps.typesToSignature.add(RefType.v("java.lang.Serializable"));
-		deps.typesToSignature.add(RefType.v("java.lang.Throwable"));
-		deps.typesToSignature.add(RefType.v("java.lang.System"));
-		deps.typesToSignature.add(RefType.v("java.io.PrintStream"));
-		deps.typesToSignature.add(RefType.v("java.lang.Boolean"));
-		deps.typesToSignature.add(RefType.v("java.lang.String"));
 		return deps;
 	}
 	
-	/**
-	 * Checks, which type the parameter has
-	 * @param node	node with a simple type
-	 * @return		matching jimple-type
-	 */
-	private Type getType (JCTree node) {
-		if (node instanceof JCPrimitiveTypeTree) {
-			if (((JCPrimitiveTypeTree)node).typetag.name().equals("INT"))
-				return IntType.v();
-			if (((JCPrimitiveTypeTree)node).typetag.name().equals("CHAR"))
-				return CharType.v();
-			if (((JCPrimitiveTypeTree)node).typetag.name().equals("BOOLEAN"))
-				return BooleanType.v();
-			if (((JCPrimitiveTypeTree)node).typetag.name().equals("BYTE"))
-				return ByteType.v();
-			if (((JCPrimitiveTypeTree)node).typetag.name().equals("DOUBLE"))
-				return DoubleType.v();
-			if (((JCPrimitiveTypeTree)node).typetag.name().equals("FLOAT"))
-				return FloatType.v();
-			if (((JCPrimitiveTypeTree)node).typetag.name().equals("LONG"))
-				return LongType.v();
-			if (((JCPrimitiveTypeTree)node).typetag.name().equals("SHORT"))
-				return ShortType.v();
-			if (((JCPrimitiveTypeTree)node).typetag.name().equals("VOID"))
-				return VoidType.v();
-		}
-		if (node instanceof JCArrayTypeTree)
-			return ArrayType.v(getType(((JCArrayTypeTree)node).elemtype), node.toString().replace(((JCArrayTypeTree)node).elemtype.toString(), "").length()/2);
-		if (node instanceof JCIdent)
-			return RefType.v("java.lang."+node.toString());	//TODO
-		return null;	//TODO Klassen als Type
-	}
 	
 	/**
 	 * Get all modifiers used for the methods
