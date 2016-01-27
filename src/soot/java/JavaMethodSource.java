@@ -15,12 +15,14 @@ import soot.NullType;
 import soot.RefType;
 import soot.Scene;
 import soot.SootClass;
+import soot.SootFieldRef;
 import soot.SootMethod;
 import soot.SootMethodRef;
 import soot.Trap;
 import soot.Type;
 import soot.Unit;
 import soot.Value;
+import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
 import soot.javaToJimple.LocalGenerator;
 import soot.jimple.ArrayRef;
@@ -53,8 +55,10 @@ public class JavaMethodSource implements MethodSource {
 	ArrayList<Unit> units=new ArrayList<>();
 	//List used to keep track of current loop, used to find jump-target for continue-statements
 	ArrayList<Unit> loopContinue=new ArrayList<>();
-	//List to solve problem with a=b++ where b=b+1 comes after a=b
+	//List to solve problem with a=b++ where b=b+1 comes after a=b and constructor after new
 	ArrayList<JCTree> queue=new ArrayList<>();
+	
+	Local newclasslocal;
 	//Generator for locals
 	LocalGenerator locGen;
 	//Save this soot-method globally, used to find methods in the same class
@@ -98,6 +102,11 @@ public class JavaMethodSource implements MethodSource {
 	 */
 	private Unit getMethodBody(com.sun.tools.javac.util.List<JCStatement> stats) {
 		Unit ret=getHead(stats.head);
+		if (!queue.isEmpty()) {
+			JCTree tree=queue.get(0);
+			queue.remove(tree);
+			getHead(tree);
+		}
 		while (stats.tail.head!=null) {
 			stats=stats.tail;
 			getHead(stats.head);
@@ -145,6 +154,8 @@ public class JavaMethodSource implements MethodSource {
 			return addSynchronized((JCSynchronized)node);
 		if (node instanceof JCTry)
 			return addTryCatch((JCTry)node);
+		if (node instanceof JCNewClass)
+			return addConstructorInvocation((JCNewClass)node);
 		return null;
 	}
 
@@ -170,6 +181,8 @@ public class JavaMethodSource implements MethodSource {
 			return getConditional((JCConditional)node);
 		if (node instanceof JCMethodInvocation)
 			return getMethodInvocation((JCMethodInvocation)node);
+		if (node instanceof JCNewClass)
+			return getNewClass((JCNewClass)node);
 		if (node instanceof JCUnary) {
 			if (post(node))
 				queue.add(node);
@@ -194,7 +207,6 @@ public class JavaMethodSource implements MethodSource {
 		for (int i=0; i<parameter.size();i++)
 			parameterTypes.add(parameter.get(i).getType());
 		
-		
 		Value invoke=null;
 		SootMethodRef method=getMethodRef(node.meth, parameterTypes);
 		if (node.meth instanceof JCIdent) {											//in this class
@@ -210,11 +222,16 @@ public class JavaMethodSource implements MethodSource {
 				invoke=Jimple.v().newStaticInvokeExpr(method,parameter);
 			}
 			else {		
-				invoke=Jimple.v().newVirtualInvokeExpr((Local)getValue(((JCFieldAccess)node.meth).selected), method, parameter);
+				Local loc=(Local)getValue(((JCFieldAccess)node.meth).selected);
+				invoke=Jimple.v().newVirtualInvokeExpr(loc, method, parameter);
 			}
 		}
-		else if (((JCFieldAccess)node.meth).selected instanceof JCFieldAccess){		//TODO FieldAccess allgemein?		
-			Value staticRef=Jimple.v().newStaticFieldRef(Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)((JCFieldAccess)((JCFieldAccess)node.meth).selected).selected, deps)).getFieldByName(((JCFieldAccess)((JCFieldAccess)node.meth).selected).name.toString()).makeRef());		//TODO chain-field access
+		else if (((JCFieldAccess)node.meth).selected instanceof JCFieldAccess){		//TODO FieldAccess allgemein?	
+			JCFieldAccess fieldnode=(JCFieldAccess)((JCFieldAccess)node.meth).selected;
+			String packagename=JavaUtil.getPackage((JCIdent)fieldnode.selected, deps);
+			String fieldname=fieldnode.name.toString();
+			SootFieldRef klass=Scene.v().getSootClass(packagename).getFieldByName(fieldname).makeRef();
+			Value staticRef=Jimple.v().newStaticFieldRef(klass);		//TODO chain-field access
 			Local refLocal=locGen.generateLocal(staticRef.getType());
 			Unit refAssign=Jimple.v().newAssignStmt(refLocal, staticRef);
 			units.add(refAssign);
@@ -452,6 +469,25 @@ public class JavaMethodSource implements MethodSource {
 		return entermonitor;
 		
 	}
+	
+	private Unit addConstructorInvocation(JCNewClass node) {
+		com.sun.tools.javac.util.List<JCExpression> args = node.args;
+		ArrayList<Value> parameter=new ArrayList<>();
+		while (args.head!=null) {
+			parameter.add(checkBinary(getValue(args.head)));
+			args=args.tail;
+		}		
+		List<Type> parameterTypes=new ArrayList<>();
+		for (int i=0; i<parameter.size();i++)
+			parameterTypes.add(parameter.get(i).getType());
+		
+		SootClass klass=Scene.v().getSootClass(newclasslocal.getType().toString());
+		SootMethodRef method=Scene.v().makeMethodRef(klass, "<init>", parameterTypes, VoidType.v(), false);
+		Value invoke=Jimple.v().newSpecialInvokeExpr(newclasslocal, method, parameter);
+		Unit specialinvocation=Jimple.v().newInvokeStmt(invoke);
+		units.add(specialinvocation);
+		return specialinvocation;
+	}
 
 	
 	private Unit addSwitch(JCSwitch node) {
@@ -492,6 +528,8 @@ public class JavaMethodSource implements MethodSource {
 			right=checkBinary(right);
 		Unit assign=Jimple.v().newAssignStmt(var, right);
 		units.add(assign);
+		if (node.rhs instanceof JCNewClass)
+			newclasslocal=(Local)var;
 		return assign;
 	}
 
@@ -503,7 +541,8 @@ public class JavaMethodSource implements MethodSource {
 	private Unit addVariableDecl(JCVariableDecl node) {
 		if (node.vartype instanceof JCArrayTypeTree) {
 			Local array=new JimpleLocal(node.name.toString(),JavaUtil.getType(node.vartype,deps));
-			Value arrayValue=Jimple.v().newNewArrayExpr(JavaUtil.getType(((JCNewArray)node.init).elemtype,deps), getValue(((JCNewArray)node.init).dims.head));	//TODO dims List, mehrdimensional
+			Type type=JavaUtil.getType(((JCNewArray)node.init).elemtype,deps);
+			Value arrayValue=Jimple.v().newNewArrayExpr(type, getValue(((JCNewArray)node.init).dims.head));	//TODO dims List, mehrdimensional
 			Unit assign=Jimple.v().newAssignStmt(array, arrayValue);
 			locals.put(array.getName(), array);
 			units.add(assign);
@@ -517,6 +556,8 @@ public class JavaMethodSource implements MethodSource {
 			if (con!=null) {
 				Unit assign=Jimple.v().newAssignStmt(newLocal, con);
 				units.add(assign);
+				if (node.init instanceof JCNewClass)
+					newclasslocal=newLocal;
 				return assign;
 			}
 		}
@@ -698,6 +739,12 @@ public class JavaMethodSource implements MethodSource {
 		return array;
 	}
 	
+	private Value getNewClass(JCNewClass node) {
+		Value newClass=Jimple.v().newNewExpr((RefType) JavaUtil.getType(node.clazz, deps));
+		queue.add(node);
+		return newClass;
+	}
+	
 	/**
 	 * Translates a ternary operator (x?x:x) into an if-statement 
 	 * @param node	node containing the ternary term
@@ -815,10 +862,14 @@ public class JavaMethodSource implements MethodSource {
 			return thisMethod.getDeclaringClass().getMethod(node.toString(), parameterTypes).makeRef();
 		else { 
 			if (((JCFieldAccess)node).selected instanceof JCIdent) {
-				if (JavaUtil.getPackage((JCIdent)((JCFieldAccess)node).selected,deps)!=null)
-					return Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)((JCFieldAccess)node).selected,deps)).getMethod(((JCFieldAccess)node).name.toString(), parameterTypes).makeRef();
-				else
-					return Scene.v().getSootClass(locals.get((((JCFieldAccess)node).selected).toString()).getType().toString()).getMethod(((JCFieldAccess)node).name.toString(), parameterTypes).makeRef();
+				if (JavaUtil.getPackage((JCIdent)((JCFieldAccess)node).selected,deps)!=null) {
+					String packagename=JavaUtil.getPackage((JCIdent)((JCFieldAccess)node).selected,deps);
+					return Scene.v().getSootClass(packagename).getMethod(((JCFieldAccess)node).name.toString(), parameterTypes).makeRef();
+				}
+				else {
+					String packagename=locals.get((((JCFieldAccess)node).selected).toString()).getType().toString();
+					return Scene.v().getSootClass(packagename).getMethod(((JCFieldAccess)node).name.toString(), parameterTypes).makeRef();
+				}
 			}
 			else if (((JCFieldAccess)node).selected instanceof JCMethodInvocation){
 				Value access=getMethodInvocation((JCMethodInvocation)((JCFieldAccess)node).selected);
