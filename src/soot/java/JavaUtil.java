@@ -4,6 +4,7 @@ import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.JCTree.JCArrayTypeTree;
 import com.sun.tools.javac.tree.JCTree.JCIdent;
 import com.sun.tools.javac.tree.JCTree.JCPrimitiveTypeTree;
+import com.sun.tools.javac.tree.JCTree.JCTypeApply;
 
 import soot.ArrayType;
 import soot.BooleanType;
@@ -52,7 +53,10 @@ public class JavaUtil {
 			return ArrayType.v(getType(((JCArrayTypeTree)node).elemtype, deps), node.toString().replace(((JCArrayTypeTree)node).elemtype.toString(), "").length()/2);
 		if (node instanceof JCIdent)
 			return RefType.v(getPackage((JCIdent)node, deps));
-		return null;
+		if (node instanceof JCTypeApply)
+			return RefType.v(getPackage((JCIdent)((JCTypeApply)node).clazz,deps));
+		else
+			throw new AssertionError("Unknown type " + node.toString());
 	}
 	
 	/**
@@ -67,6 +71,6 @@ public class JavaUtil {
 			if (substring.equals(node.toString()))
 				return ref.toString();
 		}
-		return null;
+		throw new AssertionError("Unknown class " + node.toString());
 	}
 }
