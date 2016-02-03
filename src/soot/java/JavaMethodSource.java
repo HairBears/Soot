@@ -17,6 +17,7 @@ import soot.PrimType;
 import soot.RefType;
 import soot.Scene;
 import soot.SootClass;
+import soot.SootField;
 import soot.SootFieldRef;
 import soot.SootMethod;
 import soot.SootMethodRef;
@@ -40,6 +41,7 @@ import soot.jimple.InvokeExpr;
 import soot.jimple.Jimple;
 import soot.jimple.JimpleBody;
 import soot.jimple.LongConstant;
+import soot.jimple.NewExpr;
 import soot.jimple.NopStmt;
 import soot.jimple.NullConstant;
 import soot.jimple.ReturnStmt;
@@ -70,10 +72,13 @@ public class JavaMethodSource implements MethodSource {
 	//Save imports to find package names as type
 	Dependencies deps;
 	
+	ArrayList<JCTree> fieldlist;
 	
-	public JavaMethodSource(JCMethodDecl body, Dependencies deps) {
+	
+	public JavaMethodSource(JCMethodDecl body, Dependencies deps, ArrayList<JCTree> fieldlist) {
 		this.meth=body;
 		this.deps=deps;
+		this.fieldlist=fieldlist;
 	}
 	
 
@@ -83,6 +88,8 @@ public class JavaMethodSource implements MethodSource {
 		JimpleBody jb = Jimple.v().newBody(m);
 		locGen=new LocalGenerator(jb);
 		getParameter(m, meth.params);
+		if (m.getName().equals("<init>"))
+			getFields();
 		getMethodBody(meth.body.stats);
 		
 		
@@ -173,7 +180,7 @@ public class JavaMethodSource implements MethodSource {
 		if (node instanceof JCBinary)
 			return getBinary((JCBinary)node);
 		if (node instanceof JCIdent) 
-			return locals.get(((JCIdent)node).toString());
+			return getLocal((JCIdent) node);
 		if (node instanceof JCLiteral)
 			return getConstant((JCLiteral) node);
 		if (node instanceof JCInstanceOf)
@@ -813,6 +820,24 @@ public class JavaMethodSource implements MethodSource {
 			throw new AssertionError("Unknown type of constant " + node.toString());
 	}
 	
+	private Value getLocal(JCIdent node) {
+		Value loc;
+		if (locals.containsKey(node.toString()))
+			loc=locals.get(node.toString());
+		else
+		{
+			if (thisMethod.getDeclaringClass().declaresFieldByName(node.toString())) {
+				SootField field=thisMethod.getDeclaringClass().getFieldByName(node.toString());
+				if (field.isStatic()) 
+					loc=Jimple.v().newStaticFieldRef(field.makeRef());
+				else
+					loc=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
+			}
+			else																//TODO Felder aus anderen Klassen
+				throw new AssertionError("Unknown local " + node.toString());
+		}
+		return loc;
+	}
 	/**
 	 * Checks, if the value is a binary operation. 
 	 * If yes, create a new jimple-local to save the interim result
@@ -820,7 +845,7 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		the new jimple-local or the value from the parameter
 	 */
 	private Value checkBinary(Value val) {
-		if (val instanceof BinopExpr || val instanceof CastExpr || val instanceof InstanceOfExpr || val instanceof ArrayRef || val instanceof InvokeExpr) {
+		if (val instanceof BinopExpr || val instanceof CastExpr || val instanceof InstanceOfExpr || val instanceof ArrayRef || val instanceof InvokeExpr || val instanceof NewExpr) {
 			Local newLocal=locGen.generateLocal(val.getType());
 			locals.put(newLocal.getName(),newLocal);
 			Unit assign=Jimple.v().newAssignStmt(newLocal, val);
@@ -841,6 +866,12 @@ public class JavaMethodSource implements MethodSource {
 			Unit thisIdent=Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(m.getDeclaringClass().getType()));
 			locals.put("thisLocal", thisLocal);
 			units.add(thisIdent);
+			if (m.getName().equals("<init>")) {
+				SootMethod method=m.getDeclaringClass().getMethodByName("<init>");
+				Value invoke=Jimple.v().newSpecialInvokeExpr(thisLocal,method.makeRef());
+				Unit specialinvoke=Jimple.v().newInvokeStmt(invoke);
+				units.add(specialinvoke);
+			}
 		}
 		int paramcount=0;
 		while(params.head!=null) {
@@ -852,6 +883,28 @@ public class JavaMethodSource implements MethodSource {
 			params=params.tail;
 		}
 			
+	}
+	
+	private void getFields() {
+		while (!fieldlist.isEmpty()) {
+			JCTree node=fieldlist.get(0);
+			SootField field=thisMethod.getDeclaringClass().getFieldByName(((JCVariableDecl)node).name.toString());
+			Value loc;
+			if (field.isStatic()) 
+				loc=Jimple.v().newStaticFieldRef(field.makeRef());
+			else
+				loc=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
+			Value rhs=checkBinary(getValue(((JCVariableDecl)node).init));
+			if (!queue.isEmpty()) {
+				newclasslocal=(Local)rhs;
+				JCTree tree=queue.get(0);
+				queue.remove(tree);
+				getHead(tree);
+			}
+			Unit assign=Jimple.v().newAssignStmt(loc, rhs);
+			units.add(assign);
+			fieldlist.remove(node);
+		}
 	}
 	
 	/**

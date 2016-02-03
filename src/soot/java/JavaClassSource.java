@@ -20,19 +20,25 @@ import com.sun.tools.javac.util.Context;
 import soot.ClassSource;
 import soot.Modifier;
 import soot.RefType;
+import soot.Scene;
 import soot.SootClass;
+import soot.SootField;
 import soot.SootMethod;
 import soot.Type;
+import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
+import soot.jimple.Jimple;
 
 public class JavaClassSource extends ClassSource {
 	
 	//Path to java class file
 	String path;
+	ArrayList<JCTree> fieldlist;
 
 	public JavaClassSource(String className, String path) {
 		super(className);
 		this.path=path;
+		fieldlist=new ArrayList<JCTree>();
 	}
 
 	@Override
@@ -71,12 +77,25 @@ public class JavaClassSource extends ClassSource {
 		deps.typesToSignature.add(RefType.v("java.lang.Boolean"));
 		deps.typesToSignature.add(RefType.v("java.lang.String"));
 		
-		JCMethodDecl method;
+		
+
 		com.sun.tools.javac.util.List<JCTree> list = ((JCTree.JCClassDecl) classDecl.head).defs;
 		
 		//Add all methods in this class
 		while (list.head!=null) {
-			method=(JCTree.JCMethodDecl)list.head;
+			getHead(list.head,deps,sc);
+			
+			list=list.tail;
+		}
+	
+		return deps;
+	}
+	
+	
+	private void getHead(JCTree node, Dependencies deps, SootClass sc) {
+		if (node instanceof JCMethodDecl) {
+	//		if (node.)
+			JCMethodDecl method=(JCMethodDecl)node;
 			List<Type> parameterTypes=new ArrayList<>();
 			com.sun.tools.javac.util.List<JCVariableDecl> paramlist=method.params;
 			while (paramlist.head!=null) {
@@ -85,13 +104,26 @@ public class JavaClassSource extends ClassSource {
 					parameterTypes.add(type);
 				paramlist=paramlist.tail;
 			}
-			
-			sc.addMethod(new SootMethod(method.name.toString(), parameterTypes, JavaUtil.getType(method.restype,deps), getModifiers((JCModifiers)method.mods)));
-			sc.getMethodByName(method.name.toString()).setSource(new JavaMethodSource(method, deps));	
-			list=list.tail;
+			String methodname=method.name.toString();
+			Type returntype;
+			if (methodname.equals("<init>"))
+				returntype=VoidType.v();
+			else
+				returntype=JavaUtil.getType(method.restype,deps);
+			int modifier=getModifiers((JCModifiers)method.mods);
+			sc.addMethod(new SootMethod(methodname, parameterTypes, returntype,modifier));
+			sc.getMethodByName(methodname).setSource(new JavaMethodSource(method, deps,fieldlist));	
 		}
-	
-		return deps;
+		if (node instanceof JCVariableDecl) {
+			String fieldname=((JCVariableDecl) node).getName().toString();
+			Type fieldtype=JavaUtil.getType(((JCVariableDecl) node).vartype, deps);
+			int fieldmods=getModifiers(((JCVariableDecl) node).getModifiers());
+			SootField field=new SootField(fieldname,fieldtype,fieldmods);
+			sc.addField(field);
+			if (((JCVariableDecl)node).init!=null) {
+				fieldlist.add(node);
+			}
+		}
 	}
 	
 	
