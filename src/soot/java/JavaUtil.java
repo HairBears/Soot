@@ -23,10 +23,11 @@ import soot.javaToJimple.IInitialResolver.Dependencies;
 public class JavaUtil {
 
 	/**
-	 * Checks, which type the node has
-	 * @param node	node with a type
-	 * @param deps	imports
-	 * @return		matching jimple-type
+	 * Checks the type of the given node and returns it
+	 * @param node	AST-node with a type
+	 * @param deps	imports of the parsed class
+	 * @return		Jimple-type matching the type of the node
+	 * @throws		AssertionError
 	 */
 	public static Type getType (JCTree node, Dependencies deps) {
 		if (node instanceof JCPrimitiveTypeTree) {
@@ -54,16 +55,17 @@ public class JavaUtil {
 		if (node instanceof JCIdent)
 			return RefType.v(getPackage((JCIdent)node, deps));
 		if (node instanceof JCTypeApply)
-			return RefType.v(getPackage((JCIdent)((JCTypeApply)node).clazz,deps));
+			return RefType.v(getPackage((JCIdent)((JCTypeApply)node).clazz, deps));
 		else
 			throw new AssertionError("Unknown type " + node.toString());
 	}
 	
 	/**
-	 * Searches for a matching package name 
-	 * @param node	node containing a class type
-	 * @param deps	imports
+	 * Searches the imports for a package name matching the class type of the node
+	 * @param node	AST-node containing a class type
+	 * @param deps	imports of the parsed class
 	 * @return		name of matching import-package
+	 * @throws		AssertionError
 	 */
 	public static String getPackage(JCIdent node, Dependencies deps) {
 		for (Type ref:deps.typesToSignature) {

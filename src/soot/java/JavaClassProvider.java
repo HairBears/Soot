@@ -9,8 +9,8 @@ public class JavaClassProvider implements ClassProvider {
 	public ClassSource find(String cls) {
 		
 	
-        String path =SourceLocator.v().classPath().get(0);
+        String path = SourceLocator.v().classPath().get(0);
 		
-		return new JavaClassSource(cls,path);
+		return new JavaClassSource(cls, path);
 	}
 }
