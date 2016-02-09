@@ -75,4 +75,13 @@ public class JavaUtil {
 		}
 		throw new AssertionError("Unknown class " + node.toString());
 	}
+
+	public static boolean isPackageName(JCIdent node, Dependencies deps) {
+		for (Type ref:deps.typesToSignature) {
+			String substring=ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
+			if (substring.equals(node.toString()))
+				return true;
+		}
+		return false;
+	}
 }
