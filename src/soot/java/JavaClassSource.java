@@ -10,11 +10,7 @@ import com.sun.tools.javac.file.JavacFileManager;
 import com.sun.tools.javac.parser.JavacParser;
 import com.sun.tools.javac.parser.ParserFactory;
 import com.sun.tools.javac.tree.JCTree;
-import com.sun.tools.javac.tree.JCTree.JCCompilationUnit;
-import com.sun.tools.javac.tree.JCTree.JCImport;
-import com.sun.tools.javac.tree.JCTree.JCMethodDecl;
-import com.sun.tools.javac.tree.JCTree.JCModifiers;
-import com.sun.tools.javac.tree.JCTree.JCVariableDecl;
+import com.sun.tools.javac.tree.JCTree.*;
 import com.sun.tools.javac.util.Context;
 
 import soot.ClassSource;
@@ -27,15 +23,14 @@ import soot.SootMethod;
 import soot.Type;
 import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
-import soot.jimple.Jimple;
 
 public class JavaClassSource extends ClassSource {
 	
 	//Path to java class file
-	String path;
+	File path;
 	ArrayList<JCTree> fieldlist;
 
-	public JavaClassSource(String className, String path) {
+	public JavaClassSource(String className, File path) {
 		super(className);
 		this.path=path;
 		fieldlist=new ArrayList<JCTree>();
@@ -46,8 +41,9 @@ public class JavaClassSource extends ClassSource {
 		
 		//Scanning the file and creating an abstract syntax tree
 		String text="";
+		
 		try {
-			Scanner scanner = new Scanner( new File(path) );
+			Scanner scanner = new Scanner( path );
 			text = scanner.useDelimiter("\\A").next();
 			scanner.close();
 		} catch (FileNotFoundException e) {
@@ -70,16 +66,28 @@ public class JavaClassSource extends ClassSource {
 			classDecl=classDecl.tail;
 		}
 		deps.typesToSignature.add(RefType.v("java.lang.Object"));			//TODO suche in methoden nach noetigen imports
-		deps.typesToSignature.add(RefType.v("java.lang.Serializable"));
 		deps.typesToSignature.add(RefType.v("java.lang.Throwable"));
 		deps.typesToSignature.add(RefType.v("java.lang.System"));
 		deps.typesToSignature.add(RefType.v("java.io.PrintStream"));
 		deps.typesToSignature.add(RefType.v("java.lang.Boolean"));
 		deps.typesToSignature.add(RefType.v("java.lang.String"));
+		deps.typesToSignature.add(RefType.v("java.lang.StringBuilder"));
+		deps.typesToSignature.add(RefType.v("java.io.Serializable"));
 		
+		JCClassDecl classsig=(JCClassDecl) classDecl.head;
+		if (classsig.extending!=null) {
+			sc.setSuperclass(Scene.v().getSootClass(classsig.extending.toString()));	//TODO import
+		}
+		if (classsig.implementing!=null) {
+			com.sun.tools.javac.util.List<JCExpression> interfacelist = classsig.implementing;
+			while (interfacelist.head!=null) {
+				sc.addInterface(Scene.v().getSootClass(interfacelist.head.toString()));	//TODO import
+				interfacelist=interfacelist.tail;
+			}
+		}
+		sc.setModifiers(getModifiers(classsig.mods));
 		
-
-		com.sun.tools.javac.util.List<JCTree> list = ((JCTree.JCClassDecl) classDecl.head).defs;
+		com.sun.tools.javac.util.List<JCTree> list = ((JCClassDecl) classDecl.head).defs;
 		
 		//Add all methods in this class
 		while (list.head!=null) {
@@ -94,7 +102,6 @@ public class JavaClassSource extends ClassSource {
 	
 	private void getHead(JCTree node, Dependencies deps, SootClass sc) {
 		if (node instanceof JCMethodDecl) {
-	//		if (node.)
 			JCMethodDecl method=(JCMethodDecl)node;
 			List<Type> parameterTypes=new ArrayList<>();
 			com.sun.tools.javac.util.List<JCVariableDecl> paramlist=method.params;
@@ -111,6 +118,8 @@ public class JavaClassSource extends ClassSource {
 			else
 				returntype=JavaUtil.getType(method.restype,deps);
 			int modifier=getModifiers((JCModifiers)method.mods);
+			if (sc.isInterface())
+				modifier|=Modifier.ABSTRACT;
 			sc.addMethod(new SootMethod(methodname, parameterTypes, returntype,modifier));
 			sc.getMethodByName(methodname).setSource(new JavaMethodSource(method, deps,fieldlist));	
 		}

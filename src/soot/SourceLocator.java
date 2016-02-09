@@ -301,7 +301,7 @@ public class SourceLocator
 		}
 		else if (cst == ClassSourceType.java) {
 			int endIndex=aPath.lastIndexOf(".java");
-			int startIndex=aPath.lastIndexOf('\\')+1;
+			int startIndex=aPath.lastIndexOf(File.separator)+1;
 			classes.add(aPath.substring(startIndex, endIndex));
 		}
 		else
