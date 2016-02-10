@@ -10,6 +10,8 @@ import com.sun.tools.javac.tree.JCTree.*;
 
 import soot.ArrayType;
 import soot.Body;
+import soot.BooleanType;
+import soot.CharType;
 import soot.IntType;
 import soot.Local;
 import soot.MethodSource;
@@ -19,7 +21,6 @@ import soot.RefType;
 import soot.Scene;
 import soot.SootClass;
 import soot.SootField;
-import soot.SootFieldRef;
 import soot.SootMethod;
 import soot.SootMethodRef;
 import soot.Trap;
@@ -34,6 +35,7 @@ import soot.jimple.BinopExpr;
 import soot.jimple.CastExpr;
 import soot.jimple.Constant;
 import soot.jimple.DoubleConstant;
+import soot.jimple.FieldRef;
 import soot.jimple.FloatConstant;
 import soot.jimple.IfStmt;
 import soot.jimple.InstanceOfExpr;
@@ -90,10 +92,14 @@ public class JavaMethodSource implements MethodSource {
 		thisMethod=m;
 		JimpleBody jb = Jimple.v().newBody(m);
 		locGen=new LocalGenerator(jb);
-		getParameter(m, meth.params);
+		if (meth!=null)
+			getParameter(m, meth.params);
+		else
+			getThisVar(m);
 		if (m.getName().equals("<init>"))
 			getFields();
-		getMethodBody(meth.body.stats);
+		if (meth!=null)
+			getMethodBody(meth.body.stats);
 		jb.getTraps().addAll(traps);
 		Iterator<Local> iterator=locals.values().iterator();
 		while (iterator.hasNext()) {
@@ -201,6 +207,8 @@ public class JavaMethodSource implements MethodSource {
 			return getMethodInvocation((JCMethodInvocation)node);
 		if (node instanceof JCNewClass)
 			return getNewClass((JCNewClass)node);
+		if (node instanceof JCFieldAccess)
+			return getFieldAccess((JCFieldAccess)node);
 		if (node instanceof JCUnary) {
 			if (post(node))
 				queue.add(node);
@@ -251,7 +259,7 @@ public class JavaMethodSource implements MethodSource {
 		}
 		else if (((JCFieldAccess)node.meth).selected instanceof JCFieldAccess){		//with field access, e.g. System.out.println
 			Local refLocal=getLastRefLocal(method.declaringClass().toString());
-			invoke=Jimple.v().newVirtualInvokeExpr(refLocal,method, parameter);
+			invoke=Jimple.v().newVirtualInvokeExpr(refLocal ,method, parameter);
 		}
 		else {																		//chain of invocations
 			Value returnvalue=getMethodInvocation((JCMethodInvocation)((JCFieldAccess)node.meth).selected);
@@ -354,11 +362,11 @@ public class JavaMethodSource implements MethodSource {
 		breakloop.add(nopbreak);
 		Unit nopContinue=Jimple.v().newNopStmt();
 		loopContinue.add(nopContinue);
-		Unit counter=addVariableDecl((JCVariableDecl)node.init.head);			//TODO nicht unbedingt VariableDecl
-		com.sun.tools.javac.util.List<JCStatement> varlist = node.init.tail;
-		while (varlist.head!=null) {
-			addVariableDecl((JCVariableDecl)varlist.head);
-			varlist=varlist.tail;
+		Unit counter=getHead(node.init.head);
+		com.sun.tools.javac.util.List<JCStatement> initlist = node.init.tail;
+		while (initlist.head!=null) {
+			getHead(initlist.head);	
+			initlist=initlist.tail;
 		}
 		JCTree treeNode=ignoreNode(node.cond);
 		Value condition=getValue(treeNode);
@@ -414,7 +422,7 @@ public class JavaMethodSource implements MethodSource {
 		Unit gotoNop=Jimple.v().newGotoStmt(nop);
 		units.add(gotoNop);
 		
-		Local loopLocal=new JimpleLocal(node.var.name.toString(),JavaUtil.getType(node.var.vartype, deps));
+		Local loopLocal=new JimpleLocal(node.var.name.toString(),JavaUtil.getType(node.var.vartype, deps, thisMethod.getDeclaringClass().getPackageName()));
 		locals.put(loopLocal.getName(), loopLocal);
 		Value arrayaccess=Jimple.v().newArrayRef(getValue(node.expr), counter);
 		Unit assignLoop=Jimple.v().newAssignStmt(loopLocal, arrayaccess);
@@ -472,7 +480,7 @@ public class JavaMethodSource implements MethodSource {
 		com.sun.tools.javac.util.List<JCCatch> catchlist = node.catchers;
 		while (catchlist.head!=null) {
 			Unit catchunit=addCatch((JCCatch)catchlist.head);
-			SootClass throwable = Scene.v().getSootClass("java.lang.Throwable");		//TODO allgemein
+			SootClass throwable = Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)catchlist.head.param.vartype, deps, thisMethod.getDeclaringClass().getPackageName()));
 			Trap trap=Jimple.v().newTrap(throwable, tryunit, trygoto, catchunit);
 			traps.add(trap);
 			catchlist=catchlist.tail;
@@ -485,13 +493,13 @@ public class JavaMethodSource implements MethodSource {
 			units.add(finallygoto);
 			catchlist=node.catchers;
 			while (catchlist.head!=null) {
-				Value var=locGen.generateLocal(JavaUtil.getType(catchlist.head.param.vartype,deps));
+				Value var=locGen.generateLocal(JavaUtil.getType(catchlist.head.param.vartype, deps, thisMethod.getDeclaringClass().getPackageName()));
 				Unit catchunit=Jimple.v().newIdentityStmt(var, Jimple.v().newCaughtExceptionRef());
 				units.add(catchunit);
 				noBlock(node.finalizer);
 				Unit throwstmt=Jimple.v().newThrowStmt(var);
 				units.add(throwstmt);
-				SootClass throwable = Scene.v().getSootClass("java.lang.Throwable");		//TODO allgemein
+				SootClass throwable = Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)catchlist.head.param.vartype, deps, thisMethod.getDeclaringClass().getPackageName()));
 				Trap trap=Jimple.v().newTrap(throwable, tryunit, finallygoto, catchunit);
 				traps.add(trap);
 				catchlist=catchlist.tail;
@@ -512,7 +520,7 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		assign-statement of the exception
 	 */
 	private Unit addCatch(JCCatch node) {
-		Value var=locGen.generateLocal(JavaUtil.getType(node.param.vartype,deps));
+		Value var=locGen.generateLocal(JavaUtil.getType(node.param.vartype, deps, thisMethod.getDeclaringClass().getPackageName()));
 		Unit assign=Jimple.v().newIdentityStmt(var, Jimple.v().newCaughtExceptionRef());
 		units.add(assign);
 		noBlock(node.body);
@@ -533,14 +541,14 @@ public class JavaMethodSource implements MethodSource {
 		Unit gotonop=Jimple.v().newNopStmt();
 		Unit gotostmt=Jimple.v().newGotoStmt(gotonop);
 		units.add(gotostmt);
-		Value var=locGen.generateLocal(RefType.v("java.lang.Throwable"));			//TODO allgemein
+		Value var=locGen.generateLocal(RefType.v("java.lang.Throwable"));
 		Unit catchunit=Jimple.v().newIdentityStmt(var, Jimple.v().newCaughtExceptionRef());
 		units.add(catchunit);
 		Unit exitmonitor2=Jimple.v().newExitMonitorStmt(getValue(ignoreNode(node.lock)));
 		units.add(exitmonitor2);
 		Unit endthrow=Jimple.v().newNopStmt();
 		units.add(endthrow);
-		SootClass throwable = Scene.v().getSootClass("java.lang.Throwable");		//TODO allgemein
+		SootClass throwable = Scene.v().getSootClass("java.lang.Throwable");
 		Trap trap=Jimple.v().newTrap(throwable, start, gotostmt, catchunit);
 		traps.add(trap);
 		Trap trap2=Jimple.v().newTrap(throwable, catchunit, endthrow, catchunit);
@@ -587,14 +595,14 @@ public class JavaMethodSource implements MethodSource {
 		
 		Value key=getValue(node.selector);
 		Unit defaultTarget=null;
-		com.sun.tools.javac.util.List<JCCase> cases = node.cases;		//TODO
+		com.sun.tools.javac.util.List<JCCase> cases = node.cases;
 		List<Unit> targets=new ArrayList<>();
 		List<IntConstant> lookupValues=new ArrayList<>();
 		while (cases.head!=null) {
 			if (cases.head.pat!=null) {
-				lookupValues.add((IntConstant) getConstant((JCLiteral)cases.head.pat));		//TODO chars?
+				lookupValues.add((IntConstant) getConstant((JCLiteral)cases.head.pat));
 				Unit nop=Jimple.v().newNopStmt();
-				targets.add(nop);								//TODO !!!getMethodBody(cases.head.stats)
+				targets.add(nop);
 			}
 			else 
 				defaultTarget=Jimple.v().newNopStmt();
@@ -655,27 +663,31 @@ public class JavaMethodSource implements MethodSource {
 	 */
 	private Unit addVariableDecl(JCVariableDecl node) {
 		if (node.vartype instanceof JCArrayTypeTree) {
-			Local array=new JimpleLocal(node.name.toString(),JavaUtil.getType(node.vartype,deps));
+			Local array=new JimpleLocal(node.name.toString(),JavaUtil.getType(node.vartype, deps, thisMethod.getDeclaringClass().getPackageName()));
 			Type type;
 			Value arrayValue;
-			if (((JCNewArray)node.init).elems!=null) {
-				type=getConstant((JCLiteral)((JCNewArray)node.init).elems.head).getType();
-				int i=0;
-				com.sun.tools.javac.util.List<JCExpression> list = ((JCNewArray)node.init).elems;
-				while (list.head!=null) {
-					i++;
-					list=list.tail;
+			if (node.init instanceof JCNewArray) {
+				if (((JCNewArray)node.init).elems!=null) {
+					type=getConstant((JCLiteral)((JCNewArray)node.init).elems.head).getType();
+					int i=0;
+					com.sun.tools.javac.util.List<JCExpression> list = ((JCNewArray)node.init).elems;
+					while (list.head!=null) {
+						i++;
+						list=list.tail;
+					}
+					arrayValue=Jimple.v().newNewArrayExpr(type, IntConstant.v(i));
 				}
-				arrayValue=Jimple.v().newNewArrayExpr(type, IntConstant.v(i));
+				else {
+					type=JavaUtil.getType(((JCNewArray)node.init).elemtype, deps, thisMethod.getDeclaringClass().getPackageName());
+					arrayValue=Jimple.v().newNewArrayExpr(type, getValue(((JCNewArray)node.init).dims.head));
+				}
 			}
-			else {
-				type=JavaUtil.getType(((JCNewArray)node.init).elemtype,deps);
-				arrayValue=Jimple.v().newNewArrayExpr(type, getValue(((JCNewArray)node.init).dims.head));
-			}
+			else
+				arrayValue=getValue(node.init);
 			Unit assign=Jimple.v().newAssignStmt(array, arrayValue);
 			locals.put(array.getName(), array);
 			units.add(assign);
-			if (((JCNewArray)node.init).elems!=null) {
+			if (node.init instanceof JCNewArray && ((JCNewArray)node.init).elems!=null) {
 				int i=0;
 				com.sun.tools.javac.util.List<JCExpression> list = ((JCNewArray)node.init).elems;
 				while (list.head!=null) {
@@ -692,10 +704,10 @@ public class JavaMethodSource implements MethodSource {
 		else {
 			Type type;
 			if (node.init!=null && node.init instanceof JCNewClass) {
-				type=JavaUtil.getType(((JCNewClass)node.init).clazz,deps);
+				type=JavaUtil.getType(((JCNewClass)node.init).clazz, deps, thisMethod.getDeclaringClass().getPackageName());
 			}
 			else
-				type=JavaUtil.getType(node.vartype,deps);
+				type=JavaUtil.getType(node.vartype, deps, thisMethod.getDeclaringClass().getPackageName());
 			Local newLocal=new JimpleLocal(node.name.toString(),type);
 			Value con=getValue(node.init);
 		
@@ -901,7 +913,7 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		instance of in equal expression
 	 */
 	private Value getInstanceOf(JCInstanceOf node) {
-		Value instance=Jimple.v().newInstanceOfExpr(checkBinary(getValue(node.expr)), JavaUtil.getType(node.clazz,deps));
+		Value instance=Jimple.v().newInstanceOfExpr(checkBinary(getValue(node.expr)), JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass().getPackageName()));
 		Value local=locGen.generateLocal(instance.getType());
 		Unit assign=Jimple.v().newAssignStmt(local, instance);
 		units.add(assign);
@@ -915,7 +927,7 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		type cast in jimple
 	 */
 	private Value getTypeCast(JCTypeCast node) {
-		Value typecast=Jimple.v().newCastExpr(getValue(node.expr), JavaUtil.getType(node.clazz,deps));
+		Value typecast=Jimple.v().newCastExpr(getValue(node.expr), JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass().getPackageName()));
 		return typecast;
 	}
 	
@@ -935,7 +947,7 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		new expression in jimple
 	 */
 	private Value getNewClass(JCNewClass node) {
-		Value newClass=Jimple.v().newNewExpr((RefType) JavaUtil.getType(node.clazz, deps));
+		Value newClass=Jimple.v().newNewExpr((RefType) JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass().getPackageName()));
 		queue.add(node);
 		return newClass;
 	}
@@ -1015,10 +1027,31 @@ public class JavaMethodSource implements MethodSource {
 				else
 					loc=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
 			}
-			else																//TODO Felder aus anderen Klassen
+			else			
 				throw new AssertionError("Unknown local " + node.toString());
 		}
 		return loc;
+	}
+	
+	/**
+	 * Translate a field access in an other class
+	 * @param node	node containing the field access
+	 * @return		translates field access
+	 */
+	private Value getFieldAccess(JCFieldAccess node) {
+		Value loc;
+		if (JavaUtil.isPackageName((JCIdent)node.selected, deps)) {
+			SootClass clazz=Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)node.selected, deps, thisMethod.getDeclaringClass().getPackageName()));
+			loc=Jimple.v().newStaticFieldRef(clazz.getFieldByName(node.name.toString()).makeRef());
+			return loc;
+		}
+		else
+		{
+			Value val=getLocal((JCIdent)node.selected);
+			SootClass clazz=Scene.v().getSootClass(val.getType().toString());
+			loc=Jimple.v().newInstanceFieldRef(val, clazz.getFieldByName(node.name.toString()).makeRef());
+			return loc;
+		} 		
 	}
 	
 	/**
@@ -1028,7 +1061,8 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		the new jimple-local or the value from the parameter
 	 */
 	private Value checkBinary(Value val) {
-		if (val instanceof BinopExpr || val instanceof CastExpr || val instanceof InstanceOfExpr || val instanceof ArrayRef || val instanceof InvokeExpr || val instanceof NewExpr) {
+		if (val instanceof BinopExpr || val instanceof CastExpr || val instanceof InstanceOfExpr || val instanceof ArrayRef 
+				|| val instanceof InvokeExpr || val instanceof NewExpr || val instanceof FieldRef) {
 			Local newLocal=locGen.generateLocal(val.getType());
 			locals.put(newLocal.getName(),newLocal);
 			Unit assign=Jimple.v().newAssignStmt(newLocal, val);
@@ -1050,7 +1084,7 @@ public class JavaMethodSource implements MethodSource {
 			locals.put("thisLocal", thisLocal);
 			units.add(thisIdent);
 			if (m.getName().equals("<init>")) {
-				SootMethod method=m.getDeclaringClass().getMethodByName("<init>");
+				SootMethod method=thisMethod;
 				Value invoke=Jimple.v().newSpecialInvokeExpr(thisLocal,method.makeRef());
 				Unit specialinvoke=Jimple.v().newInvokeStmt(invoke);
 				units.add(specialinvoke);
@@ -1058,14 +1092,31 @@ public class JavaMethodSource implements MethodSource {
 		}
 		int paramcount=0;
 		while(params.head!=null) {
-			Value parameter=Jimple.v().newParameterRef(JavaUtil.getType(params.head.vartype,deps), paramcount++);
-			Local paramLocal=new JimpleLocal(params.head.name.toString(),JavaUtil.getType(params.head.vartype,deps));
+			Value parameter=Jimple.v().newParameterRef(JavaUtil.getType(params.head.vartype, deps, thisMethod.getDeclaringClass().getPackageName()), paramcount++);
+			Local paramLocal=new JimpleLocal(params.head.name.toString(),JavaUtil.getType(params.head.vartype, deps, thisMethod.getDeclaringClass().getPackageName()));
 			Unit assign=Jimple.v().newIdentityStmt(paramLocal, parameter);
 			locals.put(paramLocal.getName(), paramLocal);
 			units.add(assign);
 			params=params.tail;
 		}
 			
+	}
+	
+	/**
+	 * If there is no constructor, make one with a this-variable
+	 * @param m	the consctructor as soot-method
+	 */
+	private void getThisVar(SootMethod m) {
+		Local thisLocal=new JimpleLocal("thisLocal",m.getDeclaringClass().getType());
+		Unit thisIdent=Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(m.getDeclaringClass().getType()));
+		locals.put("thisLocal", thisLocal);
+		units.add(thisIdent);
+		if (m.getName().equals("<init>")) {
+			SootMethod method=thisMethod;
+			Value invoke=Jimple.v().newSpecialInvokeExpr(thisLocal,method.makeRef());
+			Unit specialinvoke=Jimple.v().newInvokeStmt(invoke);
+			units.add(specialinvoke);
+		}
 	}
 	
 	/**
@@ -1100,7 +1151,14 @@ public class JavaMethodSource implements MethodSource {
 	 */
 	private Unit noBlock(JCTree node) {
 		if (node instanceof JCBlock) {
-			return getMethodBody(((JCBlock) node).stats);
+			if (((JCBlock) node).stats.head!=null)
+				return getMethodBody(((JCBlock) node).stats);
+			else
+			{
+				Unit nop=Jimple.v().newNopStmt();
+				units.add(nop);
+				return nop;
+			}
 		}
 		else
 			return getHead(node);
@@ -1114,11 +1172,11 @@ public class JavaMethodSource implements MethodSource {
 	 */
 	private SootMethodRef getMethodRef(JCTree node, List<Type> parameterTypes) {
 		if (node instanceof JCIdent)
-			return thisMethod.getDeclaringClass().getMethod(node.toString(), parameterTypes).makeRef();
+			return searchMethod(thisMethod.getDeclaringClass(), node.toString(), parameterTypes).makeRef();
 		else { 
 			if (((JCFieldAccess)node).selected instanceof JCIdent) {
 				if (JavaUtil.isPackageName((JCIdent)((JCFieldAccess)node).selected,deps)) {
-					String packagename=JavaUtil.getPackage((JCIdent)((JCFieldAccess)node).selected,deps);
+					String packagename=JavaUtil.getPackage((JCIdent)((JCFieldAccess)node).selected, deps, thisMethod.getDeclaringClass().getPackageName());
 					SootClass klass=Scene.v().getSootClass(packagename);
 					SootMethod method=searchMethod(klass,((JCFieldAccess)node).name.toString(),parameterTypes);
 					return method.makeRef();
@@ -1136,21 +1194,11 @@ public class JavaMethodSource implements MethodSource {
 				SootMethod method=searchMethod(klass,((JCFieldAccess)node).name.toString(), parameterTypes);
 				return method.makeRef();
 			}
-			else if (((JCFieldAccess)node).selected instanceof JCFieldAccess){		//TODO FieldAccess allgemein?	
-				JCFieldAccess fieldnode=(JCFieldAccess)((JCFieldAccess)node).selected;
-				String packagename=JavaUtil.getPackage((JCIdent)fieldnode.selected, deps);
-				String fieldname=fieldnode.name.toString();
-				SootFieldRef klassref=Scene.v().getSootClass(packagename).getFieldByName(fieldname).makeRef();
-				Value staticRef=Jimple.v().newStaticFieldRef(klassref);		//TODO chain-field access
-				Local refLocal=locGen.generateLocal(staticRef.getType());
-				Unit refAssign=Jimple.v().newAssignStmt(refLocal, staticRef);
-				units.add(refAssign);
-				locals.put(refLocal.getName(), refLocal);
-				packagename=refLocal.getType().toString();
-				SootClass klass=Scene.v().getSootClass(packagename);
+			else if (((JCFieldAccess)node).selected instanceof JCFieldAccess){		//FieldAccess
+				Local loc=(Local)checkBinary(getFieldAccess((JCFieldAccess)((JCFieldAccess)node).selected));
+				SootClass klass=Scene.v().getSootClass(loc.getType().toString());
 				SootMethod method=searchMethod(klass,((JCFieldAccess)node).name.toString(), parameterTypes);
-				return method.makeRef();
-			} 
+				return method.makeRef();	} 
 			else
 				throw new AssertionError("Can't find method " + node.toString() + " " + parameterTypes.toString());
 		}
@@ -1186,7 +1234,10 @@ public class JavaMethodSource implements MethodSource {
 								matches=true;
 								for (int i=0; i<paras.size(); i++) {
 									if (paras.get(i) instanceof PrimType)
-										matches=matches &&parameterTypes.get(i).equals(paras.get(i));
+										if (paras.get(i) instanceof CharType || paras.get(i) instanceof BooleanType)
+											matches=matches && (parameterTypes.get(i) instanceof IntType);
+										else
+											matches=matches &&parameterTypes.get(i).equals(paras.get(i));
 									else
 									{
 										if (paras.get(i) instanceof RefType) {
@@ -1239,6 +1290,66 @@ public class JavaMethodSource implements MethodSource {
 								matches=true;
 								for (int i=0; i<paras.size(); i++) {
 									if (paras.get(i) instanceof PrimType)
+										if (paras.get(i) instanceof CharType || paras.get(i) instanceof BooleanType)
+											matches=matches && (parameterTypes.get(i) instanceof IntType);
+										else
+											matches=matches &&parameterTypes.get(i).equals(paras.get(i));
+									else
+									{
+										if (paras.get(i) instanceof RefType) {
+											if (parameterTypes.get(i) instanceof RefType) {
+												RefType rt=(RefType)parameterTypes.get(i);
+												Chain<SootClass> interfaces = rt.getSootClass().getInterfaces();
+												while ((!rt.equals(paras.get(i)))&&rt.getSootClass().hasSuperclass()&&!(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
+													rt=rt.getSootClass().getSuperclass().getType();
+													interfaces=rt.getSootClass().getInterfaces();
+												}
+												matches=matches && (rt.equals(paras.get(i))||interfaces.contains(((RefType)paras.get(i)).getSootClass()));
+											}
+											else
+												matches=false;
+											
+										}
+										else
+										{
+											if (paras.get(i) instanceof ArrayType) {
+												if (parameterTypes.get(i) instanceof ArrayType) {
+													RefType at=(RefType)((ArrayType) parameterTypes.get(i)).baseType;
+													Chain<SootClass> interfaces = at.getSootClass().getInterfaces();
+													while ((!at.equals(paras.get(i)))&&at.getSootClass().hasSuperclass()&&!(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
+														at=at.getSootClass().getSuperclass().getType();
+														interfaces=at.getSootClass().getInterfaces();
+													}
+													matches=matches && (at.equals(paras.get(i))||interfaces.contains(((RefType)paras.get(i)).getSootClass()));
+												}
+												else
+													matches=false;
+											}
+										}
+									}
+							
+								}
+						}
+						if (matches)
+							return method;
+						}
+					}
+				}
+				/*
+				 * ABOVE NOT TESTED, old tested code:
+				 * 
+				 * while (currentclass.hasSuperclass()) {				//search in superclasses for method with supertypes/interfaces of parameter
+					currentclass=currentclass.getSuperclass();
+					methodlist=currentclass.getMethods();
+					for (int j=0; j<methodlist.size(); j++) {
+						if (methodlist.get(j).getName().equals(methodname)) {
+							SootMethod method=methodlist.get(j);
+							List<Type> paras=method.getParameterTypes();
+							boolean matches=false;
+							if (paras.size()==parameterTypes.size()) {
+								matches=true;
+								for (int i=0; i<paras.size(); i++) {
+									if (paras.get(i) instanceof PrimType)
 										matches=matches &&parameterTypes.get(i).equals(paras.get(i));
 									else
 									{
@@ -1263,6 +1374,7 @@ public class JavaMethodSource implements MethodSource {
 						}
 					}
 				}
+				 */
 			}
 		}
 		throw new AssertionError("Can't find method \"" + methodname + "\" in class \"" + klass.toString() + "\" or its superclasses" );
@@ -1324,7 +1436,7 @@ public class JavaMethodSource implements MethodSource {
 	 * @param ref	classname
 	 * @return		last local with reference to class
 	 */
-	private Local getLastRefLocal(String ref) {
+	private Local getLastRefLocal(String ref) {					//TODO unsortiert
 		Iterator<Local> iter = locals.values().iterator();
 		Local ret=null;
 		while (iter.hasNext()) {

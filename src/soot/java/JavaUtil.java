@@ -15,7 +15,9 @@ import soot.FloatType;
 import soot.IntType;
 import soot.LongType;
 import soot.RefType;
+import soot.Scene;
 import soot.ShortType;
+import soot.SootClass;
 import soot.Type;
 import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
@@ -29,7 +31,7 @@ public class JavaUtil {
 	 * @return		Jimple-type matching the type of the node
 	 * @throws		AssertionError
 	 */
-	public static Type getType (JCTree node, Dependencies deps) {
+	public static Type getType (JCTree node, Dependencies deps, String thispackage) {
 		if (node instanceof JCPrimitiveTypeTree) {
 			if (((JCPrimitiveTypeTree)node).typetag.name().equals("INT"))
 				return IntType.v();
@@ -51,11 +53,11 @@ public class JavaUtil {
 				return VoidType.v();
 		}
 		if (node instanceof JCArrayTypeTree)
-			return ArrayType.v(getType(((JCArrayTypeTree)node).elemtype, deps), node.toString().replace(((JCArrayTypeTree)node).elemtype.toString(), "").length()/2);
+			return ArrayType.v(getType(((JCArrayTypeTree)node).elemtype, deps, thispackage), node.toString().replace(((JCArrayTypeTree)node).elemtype.toString(), "").length()/2);
 		if (node instanceof JCIdent)
-			return RefType.v(getPackage((JCIdent)node, deps));
+			return RefType.v(getPackage((JCIdent)node, deps, thispackage));
 		if (node instanceof JCTypeApply)
-			return RefType.v(getPackage((JCIdent)((JCTypeApply)node).clazz, deps));
+			return RefType.v(getPackage((JCIdent)((JCTypeApply)node).clazz, deps, thispackage));
 		else
 			throw new AssertionError("Unknown type " + node.toString());
 	}
@@ -67,11 +69,16 @@ public class JavaUtil {
 	 * @return		name of matching import-package
 	 * @throws		AssertionError
 	 */
-	public static String getPackage(JCIdent node, Dependencies deps) {
+	public static String getPackage(JCIdent node, Dependencies deps, String thispackage) {
 		for (Type ref:deps.typesToSignature) {
 			String substring=ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
 			if (substring.equals(node.toString()))
 				return ref.toString();
+		}
+		for (SootClass clazz:Scene.v().getClasses()) {
+			String classinpackage=thispackage+node.toString();
+			if (clazz.getName().equals(classinpackage))
+				return clazz.toString();
 		}
 		throw new AssertionError("Unknown class " + node.toString());
 	}

@@ -78,15 +78,18 @@ public class JavaClassSource extends ClassSource {
 		deps.typesToSignature.add(RefType.v("java.lang.String"));
 		deps.typesToSignature.add(RefType.v("java.lang.StringBuilder"));
 		deps.typesToSignature.add(RefType.v("java.io.Serializable"));
+		deps.typesToSignature.add(RefType.v("java.lang.AssertionError"));
 		
 		JCClassDecl classsig=(JCClassDecl) classDecl.head;
-		if (classsig.extending!=null) {
-			sc.setSuperclass(Scene.v().getSootClass(classsig.extending.toString()));	//TODO import
-		}
-		if (classsig.implementing!=null) {
+		if (classsig.extending!=null)
+			sc.setSuperclass(Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)classsig.extending, deps, sc.getPackageName())));
+		else
+			sc.setSuperclass(Scene.v().getSootClass("java.lang.Object"));
+		
+		if (classsig.implementing.head!=null) {
 			com.sun.tools.javac.util.List<JCExpression> interfacelist = classsig.implementing;
 			while (interfacelist.head!=null) {
-				sc.addInterface(Scene.v().getSootClass(interfacelist.head.toString()));	//TODO import
+				sc.addInterface(Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)interfacelist.head, deps, sc.getPackageName())));
 				interfacelist=interfacelist.tail;
 			}
 		}
@@ -100,20 +103,32 @@ public class JavaClassSource extends ClassSource {
 			
 			list = list.tail;
 		}
-	
+		List<Type> parameterTypes = new ArrayList<>();
+		if (!sc.declaresMethod("<init>", parameterTypes)) {
+			String methodname="<init>";
+			
+			Type returntype = VoidType.v();
+			sc.addMethod(new SootMethod(methodname, parameterTypes, returntype, Modifier.PUBLIC));
+			sc.getMethodByName(methodname).setSource(new JavaMethodSource(null, deps, fieldlist));
+		}
 		return deps;
 	}
 	
 	
 	private void getHead(JCTree node, Dependencies deps, SootClass sc) {
 		if (node instanceof JCMethodDecl) {
-			
-	//		if (node.)
 			JCMethodDecl method = (JCMethodDecl)node;
+			com.sun.tools.javac.util.List<JCExpression> throwlist = method.thrown;
+			ArrayList<SootClass> throwlistmethod=new ArrayList<>();
+			while (throwlist.head!=null) {
+				String packagename=JavaUtil.getPackage((JCIdent)throwlist.head, deps, sc.getPackageName());
+				throwlistmethod.add(Scene.v().getSootClass(packagename));
+				throwlist=throwlist.tail;
+			}
 			List<Type> parameterTypes = new ArrayList<>();
 			com.sun.tools.javac.util.List<JCVariableDecl> paramlist = method.params;
 			while (paramlist.head != null) {
-				Type type = JavaUtil.getType(paramlist.head.vartype, deps);
+				Type type = JavaUtil.getType(paramlist.head.vartype, deps, sc.getPackageName());
 				if (type != null)
 					parameterTypes.add(type);
 				paramlist = paramlist.tail;
@@ -123,16 +138,17 @@ public class JavaClassSource extends ClassSource {
 			if (methodname.equals("<init>"))
 				returntype = VoidType.v();
 			else
-				returntype = JavaUtil.getType(method.restype, deps);
+				returntype = JavaUtil.getType(method.restype, deps, sc.getPackageName());
 			int modifier = getModifiers((JCModifiers)method.mods);
 			if (sc.isInterface())
 				modifier |= Modifier.ABSTRACT;
-			sc.addMethod(new SootMethod(methodname, parameterTypes, returntype, modifier));
-			sc.getMethodByName(methodname).setSource(new JavaMethodSource(method, deps, fieldlist));	
+			sc.addMethod(new SootMethod(methodname, parameterTypes, returntype, modifier, throwlistmethod));
+			sc.getMethodByName(methodname).setSource(new JavaMethodSource(method, deps, fieldlist));
+			
 		}
 		if (node instanceof JCVariableDecl) {
 			String fieldname = ((JCVariableDecl) node).getName().toString();
-			Type fieldtype = JavaUtil.getType(((JCVariableDecl) node).vartype, deps);
+			Type fieldtype = JavaUtil.getType(((JCVariableDecl) node).vartype, deps, sc.getPackageName());
 			int fieldmods = getModifiers(((JCVariableDecl) node).getModifiers());
 			SootField field = new SootField(fieldname, fieldtype, fieldmods);
 			sc.addField(field);
