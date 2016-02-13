@@ -54,56 +54,59 @@ import soot.util.Chain;
 
 public class JavaMethodSource implements MethodSource {
 	
-	//Saving complete method-tree
+	//the complete method-tree
 	JCMethodDecl meth;
-	//Saving locals, easier to find with name
-	HashMap<String,Local> locals=new HashMap<>();
-	//Saving Exceptions, Try/Catch
-	ArrayList<Trap> traps=new ArrayList<>();
-	//Saving units
-	ArrayList<Unit> units=new ArrayList<>();
-	//List used to keep track of current loop, used to find jump-target for continue-statements
-	ArrayList<Unit> loopContinue=new ArrayList<>();
-	//List to solve problem with a=b++ where b=b+1 comes after a=b and constructor after new
-	ArrayList<JCTree> queue=new ArrayList<>();
-	//Save the last new-class-local, used for direct constructor invocation
+	//Contains the locals, easier to find with name
+	HashMap<String,Local> locals = new HashMap<>();
+	//List of Exceptions, Try/Catch
+	ArrayList<Trap> traps = new ArrayList<>();
+	//List of units
+	ArrayList<Unit> units = new ArrayList<>();
+	//List used to keep track of the current loop, used to find the jump-target for continue-statements
+	ArrayList<Unit> loopContinue = new ArrayList<>();
+	//List to solve the problem with a=b++, where b=b+1 comes after a=b or constructor-calls after new
+	ArrayList<JCTree> queue = new ArrayList<>();
+	//Contains the last new-class-local, used for direct constructor invocation
 	Local newclasslocal;
 	//Generator for locals
 	LocalGenerator locGen;
-	//Save this soot-method globally, used to find methods in the same class
+	//Contains specific soot-method globally, used to find methods in the same class
 	SootMethod thisMethod;
-	//Save imports to find package names as type
+	//Contains imports to find package names as type
 	Dependencies deps;
 	//List of fields which have to be initialized in each constructor 
 	ArrayList<JCTree> fieldlist;
-	//List which saves the end of all current loops, used to get a target for "break"
-	ArrayList<Unit> breakloop=new ArrayList<>();
+	//List that contains the end of all current loops, used to get a target for "break"
+	ArrayList<Unit> breakloop = new ArrayList<>();
 	
 	
 	public JavaMethodSource(JCMethodDecl body, Dependencies deps, ArrayList<JCTree> fieldlist) {
-		this.meth=body;
-		this.deps=deps;
-		this.fieldlist=fieldlist;
+		this.meth = body;
+		this.deps = deps;
+		this.fieldlist = fieldlist;
 	}
 	
-
+	/*
+	 * (non-Javadoc)
+	 * @see soot.MethodSource#getBody(soot.SootMethod, java.lang.String)
+	 */
 	@Override
 	public Body getBody(SootMethod m, String phaseName) {
-		thisMethod=m;
+		thisMethod = m;
 		JimpleBody jb = Jimple.v().newBody(m);
-		locGen=new LocalGenerator(jb);
-		if (meth!=null)
+		locGen = new LocalGenerator(jb);
+		if (meth != null)
 			getParameter(m, meth.params);
 		else
 			getThisVar(m);
 		if (m.getName().equals("<init>"))
 			getFields();
-		if (meth!=null)
+		if (meth != null)						//Kann man die ifs nicht zusammenfassen?
 			getMethodBody(meth.body.stats);
 		jb.getTraps().addAll(traps);
-		Iterator<Local> iterator=locals.values().iterator();
+		Iterator<Local> iterator = locals.values().iterator();
 		while (iterator.hasNext()) {
-			Local local=iterator.next();
+			Local local = iterator.next();
 			if (!jb.getLocals().contains(local))
 				jb.getLocals().add(local);
 		}
@@ -115,21 +118,22 @@ public class JavaMethodSource implements MethodSource {
 	}
 	
 	/**
-	 * Part unit-list into next unit and list of other units
+	 * Separates unit-list into next unit and list of remaining units
 	 * @param stats	list of units
+	 * @return the next unit
 	 */
 	private Unit getMethodBody(com.sun.tools.javac.util.List<JCStatement> stats) {
-		Unit ret=getHead(stats.head);
+		Unit ret = getHead(stats.head);
 		if (!queue.isEmpty()) {
-			JCTree tree=queue.get(0);
+			JCTree tree = queue.get(0);
 			queue.remove(tree);
 			getHead(tree);
 		}
-		while (stats.tail.head!=null) {
-			stats=stats.tail;
+		while (stats.tail.head != null) {
+			stats = stats.tail;
 			getHead(stats.head);
 			if (!queue.isEmpty()) {
-				JCTree tree=queue.get(0);
+				JCTree tree = queue.get(0);
 				queue.remove(tree);
 				getHead(tree);
 			}
@@ -138,12 +142,12 @@ public class JavaMethodSource implements MethodSource {
 	}
 	
 	/**
-	 * Check what kind of node the parameter is
+	 * Checks the type of the given node
 	 * @param node	current node to translate
-	 * @return 		node translated to jimple-unit
+	 * @return 		node translated to corresponding Jimple-unit
 	 */
 	private Unit getHead(JCTree node) {
-		node=ignoreNode(node);
+		node = ignoreNode(node);
 		if (node instanceof JCVariableDecl)
 			return addVariableDecl((JCVariableDecl)node);
 		if (node instanceof JCIf) 
@@ -183,12 +187,12 @@ public class JavaMethodSource implements MethodSource {
 	}
 
 	/**
-	 * Check what value the node has
+	 * Checks the value of the given node
 	 * @param node	node with a value
-	 * @return		value translated to jimple-value
+	 * @return		value translated to Jimple-value
 	 */
 	private Value getValue(JCTree node) {
-		node=ignoreNode(node);
+		node = ignoreNode(node);
 		if (node instanceof JCBinary)
 			return getBinary((JCBinary)node);
 		if (node instanceof JCIdent) 
@@ -219,59 +223,60 @@ public class JavaMethodSource implements MethodSource {
 	}
 
 	/**
-	 * Translate a method invocation in matching jimple invocation (static, virtual, special, interface)
+	 * Translates a method invocation in a matching Jimple invocation (static, virtual, special, interface)
 	 * @param node	node containing the method invocation
 	 * @return		method invocation as a value
 	 */
 	private Value getMethodInvocation(JCMethodInvocation node) {
 		com.sun.tools.javac.util.List<JCExpression> args = node.args;
-		ArrayList<Value> parameter=new ArrayList<>();
-		while (args.head!=null) {
+		ArrayList<Value> parameter = new ArrayList<>();
+		while (args.head != null) {
 			parameter.add(checkBinary(getValue(args.head)));
-			args=args.tail;
+			args = args.tail;
 		}		
 		List<Type> parameterTypes=new ArrayList<>();
-		for (int i=0; i<parameter.size();i++)
+		for (int i=0; i<parameter.size(); i++)
 			parameterTypes.add(parameter.get(i).getType());
 		
-		Value invoke=null;
-		SootMethodRef method=getMethodRef(node.meth, parameterTypes);
+		Value invoke = null;
+		SootMethodRef method = getMethodRef(node.meth, parameterTypes);
 	
 		if (node.meth instanceof JCIdent) {											//in this class
 			if (method.isStatic()) {												//static
-				invoke=Jimple.v().newStaticInvokeExpr(method, parameter);
+				invoke = Jimple.v().newStaticInvokeExpr(method, parameter);
 			}
 			else {																	//not static
-				invoke=Jimple.v().newVirtualInvokeExpr(locals.get("thisLocal"),method,parameter);
+				invoke = Jimple.v().newVirtualInvokeExpr(locals.get("thisLocal"), method, parameter);
 			}
 		}
 		else if (((JCFieldAccess)node.meth).selected instanceof JCIdent) {			//in some package
 			if (method.isStatic()) {												//static
-				invoke=Jimple.v().newStaticInvokeExpr(method,parameter);
+				invoke = Jimple.v().newStaticInvokeExpr(method, parameter);
 			}
 			else {		
-				Local loc=(Local)getValue(((JCFieldAccess)node.meth).selected);
+				Local loc = (Local)getValue(((JCFieldAccess)node.meth).selected);
 				if (((RefType)loc.getType()).getSootClass().isInterface())
-					invoke=Jimple.v().newInterfaceInvokeExpr(loc, method, parameter);	//interface
+					invoke = Jimple.v().newInterfaceInvokeExpr(loc, method, parameter);	//interface
 				else
-					invoke=Jimple.v().newVirtualInvokeExpr(loc, method, parameter);		//"normal"
+					invoke = Jimple.v().newVirtualInvokeExpr(loc, method, parameter);		//"normal"
 			}
 		}
 		else if (((JCFieldAccess)node.meth).selected instanceof JCFieldAccess){		//with field access, e.g. System.out.println
-			Local refLocal=getLastRefLocal(method.declaringClass().toString());
-			invoke=Jimple.v().newVirtualInvokeExpr(refLocal ,method, parameter);
+			Local refLocal = getLastRefLocal(method.declaringClass().toString());
+			invoke = Jimple.v().newVirtualInvokeExpr(refLocal, method, parameter);
 		}
 		else {																		//chain of invocations
-			Value returnvalue=getMethodInvocation((JCMethodInvocation)((JCFieldAccess)node.meth).selected);
-			Local save=locGen.generateLocal(returnvalue.getType());
-			Unit saveAssign=Jimple.v().newAssignStmt(save, returnvalue);
+			Value returnvalue = getMethodInvocation((JCMethodInvocation)((JCFieldAccess)node.meth).selected);
+			Local save = locGen.generateLocal(returnvalue.getType());
+			Unit saveAssign = Jimple.v().newAssignStmt(save, returnvalue);
 			units.add(saveAssign);
-			invoke=Jimple.v().newVirtualInvokeExpr(save, method, parameter);
+			invoke = Jimple.v().newVirtualInvokeExpr(save, method, parameter);
 		}
 		
 		return invoke;
 		}
 
+	//TODO Marker fürs Code-Aufräumen
 	/**
 	 * Translate a method invocation without a return
 	 * @param node	node containing the method invocation

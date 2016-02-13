@@ -160,9 +160,9 @@ public class JavaClassSource extends ClassSource {
 	
 	
 	/**
-	 * Get all modifiers used for the methods combines them for the return
+	 * Combines the modifiers of the method into one 
 	 * @param mods	AST-node containing all modifiers
-	 * @return		modifiers combined in integer
+	 * @return		combined modifier as an integer
 	 */
 	private int getModifiers(JCModifiers mods) {
 		int modsum = 0;
