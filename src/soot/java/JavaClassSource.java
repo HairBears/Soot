@@ -42,13 +42,10 @@ public class JavaClassSource extends ClassSource {
 	 */
 	@Override
 	public Dependencies resolve(SootClass sc) {
-		
 		//Scanning the file and creating an abstract syntax tree
-
 		String text = "";
 		try {
 			Scanner scanner = new Scanner( path );
-
 			text = scanner.useDelimiter("\\A").next();
 			scanner.close();
 		} catch (FileNotFoundException e) {
@@ -60,11 +57,8 @@ public class JavaClassSource extends ClassSource {
 		JavacParser parser=parserFactory.newParser(text, false, false, false);
 		JCCompilationUnit jccu = parser.parseCompilationUnit();
 		jfm.close();
-		
 		Dependencies deps = new Dependencies();
-		
 		com.sun.tools.javac.util.List<JCTree> classDecl = jccu.defs;
-		
 		//Add all imports as dependencies
 		while (classDecl.head instanceof JCImport) {
 			deps.typesToSignature.add(RefType.v(((JCImport)classDecl.head).qualid.toString()));
@@ -79,13 +73,11 @@ public class JavaClassSource extends ClassSource {
 		deps.typesToSignature.add(RefType.v("java.lang.StringBuilder"));
 		deps.typesToSignature.add(RefType.v("java.io.Serializable"));
 		deps.typesToSignature.add(RefType.v("java.lang.AssertionError"));
-		
 		JCClassDecl classsig=(JCClassDecl) classDecl.head;
 		if (classsig.extending!=null)
 			sc.setSuperclass(Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)classsig.extending, deps, sc.getPackageName())));
 		else
 			sc.setSuperclass(Scene.v().getSootClass("java.lang.Object"));
-		
 		if (classsig.implementing.head!=null) {
 			com.sun.tools.javac.util.List<JCExpression> interfacelist = classsig.implementing;
 			while (interfacelist.head!=null) {
@@ -94,9 +86,7 @@ public class JavaClassSource extends ClassSource {
 			}
 		}
 		sc.setModifiers(getModifiers(classsig.mods));
-		
 		com.sun.tools.javac.util.List<JCTree> list = ((JCClassDecl) classDecl.head).defs;
-		
 		//Add all methods in this class
 		while (list.head != null) {
 			getHead(list.head, deps, sc);
@@ -144,7 +134,6 @@ public class JavaClassSource extends ClassSource {
 				modifier |= Modifier.ABSTRACT;
 			sc.addMethod(new SootMethod(methodname, parameterTypes, returntype, modifier, throwlistmethod));
 			sc.getMethodByName(methodname).setSource(new JavaMethodSource(method, deps, fieldlist));
-			
 		}
 		if (node instanceof JCVariableDecl) {
 			String fieldname = ((JCVariableDecl) node).getName().toString();
