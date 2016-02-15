@@ -715,24 +715,24 @@ public class JavaMethodSource implements MethodSource {
 		Unit nop = Jimple.v().newNopStmt();
 		units.add(nop);
 		return nop;
-	} //TODO marker für code-überarbeitung
+	}
 	
 	/**
-	 * Translate an unary operation as a single statement
-	 * @param node	node containing the unary operations
-	 * @return		unary operation as an binary assign statement
+	 * Translates an unary operation as a single Jimple statement
+	 * @param node	node containing the unary operation
+	 * @return		a binary assign-statement in Jimple matching the unary operation
 	 */
 	private Unit addUnary (JCUnary node) {
-		JCTree treeNode=ignoreNode(node.arg);
-		Value value=checkBinary(getValue(treeNode));
-		String findOperator=node.toString();
-		if ((findOperator.charAt(0)=='+'&&findOperator.charAt(1)=='+')||(findOperator.charAt(findOperator.length()-2)=='+'&&findOperator.charAt(findOperator.length()-1)=='+')) {
-			Unit increase=Jimple.v().newAssignStmt(value, Jimple.v().newAddExpr(value, IntConstant.v(1)));
+		JCTree treeNode = ignoreNode(node.arg);
+		Value value = checkBinary(getValue(treeNode));
+		String findOperator = node.toString();
+		if ((findOperator.charAt(0) == '+' && findOperator.charAt(1) == '+' ) || (findOperator.charAt(findOperator.length()-2) == '+' && findOperator.charAt(findOperator.length()-1) == '+')) {
+			Unit increase = Jimple.v().newAssignStmt(value, Jimple.v().newAddExpr(value, IntConstant.v(1)));
 			units.add(increase);
 			return increase;
 		}
-		if ((findOperator.charAt(0)=='-'&&findOperator.charAt(1)=='-')||(findOperator.charAt(findOperator.length()-2)=='-'&&findOperator.charAt(findOperator.length()-1)=='-')) {
-			Unit decrease=Jimple.v().newAssignStmt(value, Jimple.v().newSubExpr(value, IntConstant.v(1)));
+		if ((findOperator.charAt(0) == '-' && findOperator.charAt(1) == '-' ) || (findOperator.charAt(findOperator.length()-2) == '-' && findOperator.charAt(findOperator.length()-1) == '-')) {
+			Unit decrease = Jimple.v().newAssignStmt(value, Jimple.v().newSubExpr(value, IntConstant.v(1)));
 			units.add(decrease);
 			return decrease;
 		}
@@ -741,128 +741,122 @@ public class JavaMethodSource implements MethodSource {
 	
 	
 	/**
-	 * Break combined operations into binary expression and assign
-	 * @param node	node containing variable, operation and one other value
+	 * Breaks combined operations into a binary expression and an assign
+	 * @param node	node containing a variable, an operation and one other value
 	 * @return		combined operation as normal assign-statement
 	 */
 	private Unit addAssignOp(JCAssignOp node) {
-		Local var=locals.get(((JCIdent)node.lhs).toString());
+		Local var = locals.get(((JCIdent)node.lhs).toString());
 		Value binary;
-		Value right=checkBinary(getValue(node.rhs));
-		String findOperator=node.toString().replace(node.lhs.toString(), "");
-		if (findOperator.charAt(1)=='+')
-			binary=Jimple.v().newAddExpr(var, right);
-		else if (findOperator.charAt(1)=='-')
-			binary=Jimple.v().newSubExpr(var, right);
-		else if (findOperator.charAt(1)=='&')
-			binary=Jimple.v().newAndExpr(var, right);
-		else if (findOperator.charAt(1)=='|')
-			binary=Jimple.v().newOrExpr(var, right);
-		else if (findOperator.charAt(1)=='*')
-			binary=Jimple.v().newMulExpr(var, right);
-		else if (findOperator.charAt(1)=='/')
-			binary=Jimple.v().newDivExpr(var, right);
-		else if (findOperator.charAt(1)=='%')
-			binary=Jimple.v().newRemExpr(var, right);
-		else if (findOperator.charAt(1)=='^')
-			binary=Jimple.v().newXorExpr(var, right);
-		else if (findOperator.charAt(3)=='>' && findOperator.charAt(2)=='>' && findOperator.charAt(1)=='>')
-			binary=Jimple.v().newUshrExpr(var, right);
-		else if (findOperator.charAt(2)=='>' && findOperator.charAt(1)=='>')
-			binary=Jimple.v().newShrExpr(var, right);
-		else if (findOperator.charAt(2)=='<' && findOperator.charAt(1)=='<')
-			binary=Jimple.v().newShlExpr(var, right);
+		Value right = checkBinary(getValue(node.rhs));
+		String findOperator = node.toString().replace(node.lhs.toString(), "");
+		if (findOperator.charAt(1) == '+')
+			binary = Jimple.v().newAddExpr(var, right);
+		else if (findOperator.charAt(1) == '-')
+			binary = Jimple.v().newSubExpr(var, right);
+		else if (findOperator.charAt(1) == '&')
+			binary = Jimple.v().newAndExpr(var, right);
+		else if (findOperator.charAt(1) == '|')
+			binary = Jimple.v().newOrExpr(var, right);
+		else if (findOperator.charAt(1) == '*')
+			binary = Jimple.v().newMulExpr(var, right);
+		else if (findOperator.charAt(1) == '/')
+			binary = Jimple.v().newDivExpr(var, right);
+		else if (findOperator.charAt(1) == '%')
+			binary = Jimple.v().newRemExpr(var, right);
+		else if (findOperator.charAt(1) == '^')
+			binary = Jimple.v().newXorExpr(var, right);
+		else if (findOperator.charAt(3) == '>' && findOperator.charAt(2) == '>' && findOperator.charAt(1) == '>')
+			binary = Jimple.v().newUshrExpr(var, right);
+		else if (findOperator.charAt(2) == '>' && findOperator.charAt(1) == '>')
+			binary = Jimple.v().newShrExpr(var, right);
+		else if (findOperator.charAt(2) == '<' && findOperator.charAt(1) == '<')
+			binary = Jimple.v().newShlExpr(var, right);
 		else
 			throw new AssertionError("Unknown assign operation in " + node.toString());
-		Unit assign=Jimple.v().newAssignStmt(var, binary);
+		Unit assign = Jimple.v().newAssignStmt(var, binary);
 		units.add(assign);
 		return assign;
 	}
 
 	
 	/**
-	 * Translate binary operations from tree to jimple
+	 * Translates a binary operation into a corresponding Jimple binary statement
 	 * @param node	node containing the binary operation
-	 * @return		binary operation in jimple
+	 * @return		binary operation in Jimple
 	 */
 	private Value getBinary(JCBinary node) {
-		Value left=checkBinary(getValue(node.lhs));
-		Value right=checkBinary(getValue(node.rhs));
-		
+		Value left = checkBinary(getValue(node.lhs));
+		Value right = checkBinary(getValue(node.rhs));
 		if (left.getType().toString().equals("java.lang.String") || right.getType().toString().equals("java.lang.String")) {
-			RefType sbref=RefType.v("java.lang.StringBuilder");
-			RefType sref=RefType.v("java.lang.String");
-			Local stringbuilder=locGen.generateLocal(sbref);
-			Value stringbuilderval=Jimple.v().newNewExpr(sbref);
-			Unit assign=Jimple.v().newAssignStmt(stringbuilder, stringbuilderval);
+			RefType sbref = RefType.v("java.lang.StringBuilder");
+			RefType sref = RefType.v("java.lang.String");
+			Local stringbuilder = locGen.generateLocal(sbref);
+			Value stringbuilderval = Jimple.v().newNewExpr(sbref);
+			Unit assign = Jimple.v().newAssignStmt(stringbuilder, stringbuilderval);
 			units.add(assign);
-			
-			Local valueofleft=locGen.generateLocal(sref);
-			ArrayList<Type> valueofpara=new ArrayList<>();
+			Local valueofleft = locGen.generateLocal(sref);
+			ArrayList<Type> valueofpara = new ArrayList<>();
 			valueofpara.add(left.getType());
-			SootMethodRef valueofMethod=Scene.v().makeMethodRef(sref.getSootClass(),"valueOf",valueofpara,sref,true);	
-			Value toString=Jimple.v().newStaticInvokeExpr(valueofMethod, left);
-			Unit assignString=Jimple.v().newAssignStmt(valueofleft, toString);
+			SootMethodRef valueofMethod = Scene.v().makeMethodRef(sref.getSootClass(), "valueOf", valueofpara, sref, true);	
+			Value toString = Jimple.v().newStaticInvokeExpr(valueofMethod, left);
+			Unit assignString = Jimple.v().newAssignStmt(valueofleft, toString);
 			units.add(assignString);
-			
-			
-			ArrayList<Value> parameter=new ArrayList<>();
-			ArrayList<Type> parameterTypes=new ArrayList<>();
+			ArrayList<Value> parameter = new ArrayList<>();
+			ArrayList<Type> parameterTypes = new ArrayList<>();
 			parameter.add(valueofleft);
 			parameterTypes.add(valueofleft.getType());
-			SootMethodRef method=Scene.v().makeMethodRef(sbref.getSootClass(), "<init>", parameterTypes, VoidType.v(), false);
-			Value invoke=Jimple.v().newSpecialInvokeExpr(stringbuilder, method, valueofleft);
-			Unit specialinvoke=Jimple.v().newInvokeStmt(invoke);
+			SootMethodRef method = Scene.v().makeMethodRef(sbref.getSootClass(), "<init>", parameterTypes, VoidType.v(), false);
+			Value invoke = Jimple.v().newSpecialInvokeExpr(stringbuilder, method, valueofleft);
+			Unit specialinvoke = Jimple.v().newInvokeStmt(invoke);
 			units.add(specialinvoke);
-			
-			ArrayList<Type>  appendTypes=new ArrayList<>();
+			ArrayList<Type> appendTypes = new ArrayList<>();
 			appendTypes.add(right.getType());
-			SootMethodRef append=Scene.v().makeMethodRef(sbref.getSootClass(), "append", appendTypes, sbref, false);
-			Value appendvalue=Jimple.v().newVirtualInvokeExpr(stringbuilder, append, right);
-			Local appendlocal=locGen.generateLocal(sbref);
-			Unit assignappend=Jimple.v().newAssignStmt(appendlocal, appendvalue);
+			SootMethodRef append = Scene.v().makeMethodRef(sbref.getSootClass(), "append", appendTypes, sbref, false);
+			Value appendvalue = Jimple.v().newVirtualInvokeExpr(stringbuilder, append, right);
+			Local appendlocal = locGen.generateLocal(sbref);
+			Unit assignappend = Jimple.v().newAssignStmt(appendlocal, appendvalue);
 			units.add(assignappend);
-			
-			ArrayList<Type> toStringTypes=new  ArrayList<>();
-			SootMethodRef returnstring=Scene.v().makeMethodRef(sbref.getSootClass(), "toString", toStringTypes, sref, false);
-			Value returnvalue=Jimple.v().newVirtualInvokeExpr(appendlocal, returnstring);
+			ArrayList<Type> toStringTypes = new  ArrayList<>();
+			SootMethodRef returnstring = Scene.v().makeMethodRef(sbref.getSootClass(), "toString", toStringTypes, sref, false);
+			Value returnvalue = Jimple.v().newVirtualInvokeExpr(appendlocal, returnstring);
 			return returnvalue;
 		}
 		else {
-			String findOperator=node.toString().replace(node.lhs.toString(), "");
-			if (findOperator.charAt(1)=='+')
+			String findOperator = node.toString().replace(node.lhs.toString(), "");
+			if (findOperator.charAt(1) == '+')
 				return Jimple.v().newAddExpr(left, right);
-			else if (findOperator.charAt(1)=='-')
+			else if (findOperator.charAt(1) == '-')
 				return Jimple.v().newSubExpr(left, right);
-			else if (findOperator.charAt(1)=='&')
+			else if (findOperator.charAt(1) == '&')
 				return Jimple.v().newAndExpr(left, right);
-			else if (findOperator.charAt(1)=='|')
+			else if (findOperator.charAt(1) == '|')
 				return Jimple.v().newOrExpr(left, right);
-			else if (findOperator.charAt(1)=='*')
+			else if (findOperator.charAt(1) == '*')
 				return Jimple.v().newMulExpr(left, right);
-			else if (findOperator.charAt(1)=='/')
+			else if (findOperator.charAt(1) == '/')
 				return Jimple.v().newDivExpr(left, right);
-			else if (findOperator.charAt(1)=='%')
+			else if (findOperator.charAt(1) == '%')
 				return Jimple.v().newRemExpr(left, right);
-			else if (findOperator.charAt(1)=='^')
+			else if (findOperator.charAt(1) == '^')
 				return Jimple.v().newXorExpr(left, right);
-			else if (findOperator.charAt(3)=='>' && findOperator.charAt(2)=='>' && findOperator.charAt(1)=='>')
+			else if (findOperator.charAt(3) == '>' && findOperator.charAt(2) == '>' && findOperator.charAt(1) == '>')
 				return Jimple.v().newUshrExpr(left, right);
-			else if (findOperator.charAt(2)=='=' && findOperator.charAt(1)=='>')
+			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '>')
 				return Jimple.v().newGeExpr(left, right);
-			else if (findOperator.charAt(2)=='>' && findOperator.charAt(1)=='>')
+			else if (findOperator.charAt(2) == '>' && findOperator.charAt(1) == '>')
 				return Jimple.v().newShrExpr(left, right);
-			else if (findOperator.charAt(1)=='>')
+			else if (findOperator.charAt(1) == '>')
 				return Jimple.v().newGtExpr(left, right);
-			else if (findOperator.charAt(2)=='=' && findOperator.charAt(1)=='<')
+			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '<')
 				return Jimple.v().newLeExpr(left, right);
-			else if (findOperator.charAt(2)=='<' && findOperator.charAt(1)=='<')
+			else if (findOperator.charAt(2) == '<' && findOperator.charAt(1) == '<')
 				return Jimple.v().newShlExpr(left, right);
-			else if (findOperator.charAt(1)=='<')
+			else if (findOperator.charAt(1) == '<')
 				return Jimple.v().newLtExpr(left, right);
-			else if (findOperator.charAt(2)=='=' && findOperator.charAt(1)=='=')
+			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '=')
 				return Jimple.v().newEqExpr(left, right);
-			else if (findOperator.charAt(2)=='=' && findOperator.charAt(1)=='!')
+			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '!')
 				return Jimple.v().newNeExpr(left, right);
 			else
 				throw new AssertionError("Unknown binary operation in " + node.toString());
@@ -870,113 +864,114 @@ public class JavaMethodSource implements MethodSource {
 	}
 	
 	/**
-	 * Translate unary operations into binary operations
+	 * Translates a unary operation into a binary Jimple statement
 	 * @param node	node containing the unary operation
-	 * @return		similar binary operation
+	 * @return		corresponding binary operation in Jimple
 	 */
 	private Value getUnary(JCUnary node) {
-		JCTree treeNode=ignoreNode(node.arg);
-		Value value=checkBinary(getValue(treeNode));
-		String findOperator=node.toString();
-		if (findOperator.charAt(0)=='!') {
+		JCTree treeNode = ignoreNode(node.arg);
+		Value value = checkBinary(getValue(treeNode));
+		String findOperator = node.toString();
+		if (findOperator.charAt(0) == '!') {
 			return Jimple.v().newEqExpr(value, IntConstant.v(0));
 		}
-		if (findOperator.charAt(0)=='~')
+		if (findOperator.charAt(0) == '~')
 			return Jimple.v().newXorExpr(value, IntConstant.v(-1));
-		if (findOperator.charAt(0)=='+'&&findOperator.charAt(1)=='+') {
-			Unit increase=Jimple.v().newAssignStmt(value, Jimple.v().newAddExpr(value, IntConstant.v(1)));
+		if (findOperator.charAt(0) == '+' && findOperator.charAt(1) == '+') {
+			Unit increase = Jimple.v().newAssignStmt(value, Jimple.v().newAddExpr(value, IntConstant.v(1)));
 			units.add(increase);
 			return value;
 		}
-		if (findOperator.charAt(0)=='-'&&findOperator.charAt(1)=='-') {
-			Unit increase=Jimple.v().newAssignStmt(value, Jimple.v().newSubExpr(value, IntConstant.v(1)));
+		if (findOperator.charAt(0) == '-' && findOperator.charAt(1) == '-') {
+			Unit increase = Jimple.v().newAssignStmt(value, Jimple.v().newSubExpr(value, IntConstant.v(1)));
 			units.add(increase);
 			return value;
 		}
-		if ((findOperator.charAt(findOperator.length()-2)=='+'&&findOperator.charAt(findOperator.length()-1)=='+')|| (findOperator.charAt(findOperator.length()-2)=='-'&&findOperator.charAt(findOperator.length()-1)=='-'))
+		if ((findOperator.charAt(findOperator.length()-2) == '+' && findOperator.charAt(findOperator.length()-1) == '+' ) 
+					|| (findOperator.charAt(findOperator.length()-2) == '-' && findOperator.charAt(findOperator.length()-1) == '-'))
 			return value;		
 		else
 			throw new AssertionError("Unknown unary value in " + node.toString());
 	}	
 	
 	/**
-	 * Translate instance of-expression from tree to jimple
-	 * @param node	node containing instance of-expression
-	 * @return		instance of in equal expression
+	 * Translate an instance of-expression into a corresponding Jimple statement
+	 * @param node	node containing the instance of-expression
+	 * @return		equal Jimple instance of-expression
 	 */
 	private Value getInstanceOf(JCInstanceOf node) {
-		Value instance=Jimple.v().newInstanceOfExpr(checkBinary(getValue(node.expr)), JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass().getPackageName()));
-		Value local=locGen.generateLocal(instance.getType());
-		Unit assign=Jimple.v().newAssignStmt(local, instance);
+		Value instance = Jimple.v().newInstanceOfExpr(checkBinary(getValue(node.expr)), JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass().getPackageName()));
+		Value local = locGen.generateLocal(instance.getType());
+		Unit assign = Jimple.v().newAssignStmt(local, instance);
 		units.add(assign);
-		Value returnInstOf=Jimple.v().newEqExpr(local, IntConstant.v(1));
+		Value returnInstOf = Jimple.v().newEqExpr(local, IntConstant.v(1));
 		return returnInstOf;
 	}
 	
 	/**
-	 * Translate type cast from tree to jimple
+	 * Translates a type cast into a corresponding Jimple type cast
 	 * @param node	node containing the type cast
-	 * @return		type cast in jimple
+	 * @return		type cast in Jimple
 	 */
 	private Value getTypeCast(JCTypeCast node) {
-		Value typecast=Jimple.v().newCastExpr(getValue(node.expr), JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass().getPackageName()));
+		Value typecast = Jimple.v().newCastExpr(getValue(node.expr), JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass().getPackageName()));
 		return typecast;
 	}
 	
 	/**
-	 * Translate an array access from tree to jimple
+	 * Translates an array access into a corresponding Jimple array access
 	 * @param node	node containing the array access
 	 * @return		the array access as a value
 	 */
 	private Value getArrayAccess(JCArrayAccess node) {
-		Value array=Jimple.v().newArrayRef(getValue(node.indexed), getValue(node.index));
+		Value array = Jimple.v().newArrayRef(getValue(node.indexed), getValue(node.index));
 		return array;
 	}
 	
 	/**
-	 * Translate a new expression
-	 * @param node	node containing the new expression
-	 * @return		new expression in jimple
+	 * Translates a new-expression into a corresponding Jimple new-expression
+	 * @param node	node containing the new-expression
+	 * @return		new-expression in Jimple
 	 */
 	private Value getNewClass(JCNewClass node) {
-		Value newClass=Jimple.v().newNewExpr((RefType) JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass().getPackageName()));
+		Value newClass = Jimple.v().newNewExpr((RefType) JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass().getPackageName()));
 		queue.add(node);
 		return newClass;
 	}
 	
 	/**
-	 * Translates a ternary operator (x?x:x) into an if-statement 
+	 * Translates a ternary operator (x?x:x) into an if-statement in Jimple
 	 * @param node	node containing the ternary term
-	 * @return		first if-statement
+	 * @return		first if-statement in Jimple
 	 */
 	private Value getConditional (JCConditional node) {
-		JCTree treeNode=ignoreNode(node.cond);
-		Value condition=getValue(treeNode);
-		Value truepart=getValue(node.truepart);
-		Value falsepart=null;
-		if (node.falsepart!=null)
-			falsepart=getValue(node.falsepart);
+		JCTree treeNode = ignoreNode(node.cond);
+		Value condition = getValue(treeNode);
+		Value truepart = getValue(node.truepart);
+		Value falsepart = null;
+		if (node.falsepart != null)
+			falsepart = getValue(node.falsepart);
 		
-		Local returnlocal=locGen.generateLocal(truepart.getType() instanceof NullType ? falsepart.getType():truepart.getType());
-		Unit nopTrue=Jimple.v().newNopStmt();
-		IfStmt ifstmt=Jimple.v().newIfStmt(condition, nopTrue);
+		Local returnlocal = locGen.generateLocal(truepart.getType() instanceof NullType ? falsepart.getType() : truepart.getType());
+		Unit nopTrue = Jimple.v().newNopStmt();
+		IfStmt ifstmt = Jimple.v().newIfStmt(condition, nopTrue);
 		units.add(ifstmt);
-		if (node.falsepart!=null) {
-			Unit assignfalse=Jimple.v().newAssignStmt(returnlocal, falsepart);
+		if (node.falsepart != null) {
+			Unit assignfalse = Jimple.v().newAssignStmt(returnlocal, falsepart);
 			units.add(assignfalse);
 		}
-		Unit nopEnd=Jimple.v().newNopStmt();
-		Unit elseEnd=Jimple.v().newGotoStmt(nopEnd);
+		Unit nopEnd = Jimple.v().newNopStmt();
+		Unit elseEnd = Jimple.v().newGotoStmt(nopEnd);
 		units.add(elseEnd);
 		units.add(nopTrue);
-		Unit assigntrue=Jimple.v().newAssignStmt(returnlocal, truepart);
+		Unit assigntrue = Jimple.v().newAssignStmt(returnlocal, truepart);
 		units.add(assigntrue);
 		units.add(nopEnd);
 		return returnlocal;
 	}
 	
 	/**
-	 * Translate number into jimple-constant
+	 * Translates number into a jimple-constant
 	 * @param node	node containing the value
 	 * @return		matching jimple-constant with value
 	 */
@@ -991,7 +986,7 @@ public class JavaMethodSource implements MethodSource {
 			return FloatConstant.v((float)node.value);
 		if (node.typetag.name().equals("BOOLEAN"))
 			return IntConstant.v((int)node.value);
-		if (node.toString().charAt(0)=='"')
+		if (node.toString().charAt(0) == '"')
 			return StringConstant.v((String)node.value);
 		if (node.typetag.name().equals("BOT"))
 			return NullConstant.v();
@@ -1002,22 +997,22 @@ public class JavaMethodSource implements MethodSource {
 	}
 	
 	/**
-	 * Get a local from this method or from a field
+	 * Searches for a local from this method or from a field
 	 * @param node	node containing the name of the variable
-	 * @return		the searched local
+	 * @return		the found local
 	 */
 	private Value getLocal(JCIdent node) {
 		Value loc;
 		if (locals.containsKey(node.toString()))
-			loc=locals.get(node.toString());
+			loc = locals.get(node.toString());
 		else
 		{
 			if (thisMethod.getDeclaringClass().declaresFieldByName(node.toString())) {
-				SootField field=thisMethod.getDeclaringClass().getFieldByName(node.toString());
+				SootField field = thisMethod.getDeclaringClass().getFieldByName(node.toString());
 				if (field.isStatic()) 
-					loc=Jimple.v().newStaticFieldRef(field.makeRef());
+					loc = Jimple.v().newStaticFieldRef(field.makeRef());
 				else
-					loc=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
+					loc = Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
 			}
 			else			
 				throw new AssertionError("Unknown local " + node.toString());
@@ -1026,38 +1021,38 @@ public class JavaMethodSource implements MethodSource {
 	}
 	
 	/**
-	 * Translate a field access in an other class
+	 * Translates a field access in an other class in Jimple
 	 * @param node	node containing the field access
-	 * @return		translates field access
+	 * @return		translated field access
 	 */
 	private Value getFieldAccess(JCFieldAccess node) {
 		Value loc;
 		if (JavaUtil.isPackageName((JCIdent)node.selected, deps)) {
-			SootClass clazz=Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)node.selected, deps, thisMethod.getDeclaringClass().getPackageName()));
-			loc=Jimple.v().newStaticFieldRef(clazz.getFieldByName(node.name.toString()).makeRef());
+			SootClass clazz = Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)node.selected, deps, thisMethod.getDeclaringClass().getPackageName()));
+			loc = Jimple.v().newStaticFieldRef(clazz.getFieldByName(node.name.toString()).makeRef());
 			return loc;
 		}
 		else
 		{
-			Value val=getLocal((JCIdent)node.selected);
-			SootClass clazz=Scene.v().getSootClass(val.getType().toString());
-			loc=Jimple.v().newInstanceFieldRef(val, clazz.getFieldByName(node.name.toString()).makeRef());
+			Value val = getLocal((JCIdent)node.selected);
+			SootClass clazz = Scene.v().getSootClass(val.getType().toString());
+			loc = Jimple.v().newInstanceFieldRef(val, clazz.getFieldByName(node.name.toString()).makeRef());
 			return loc;
 		} 		
 	}
 	
 	/**
 	 * Checks, if the value is a binary operation. 
-	 * If yes, create a new jimple-local to save the interim result
+	 * If yes, creates a new Jimple-local to save the interim result
 	 * @param val	value to check
-	 * @return		the new jimple-local or the value from the parameter
+	 * @return		the new Jimple-local or the value from the parameter
 	 */
 	private Value checkBinary(Value val) {
 		if (val instanceof BinopExpr || val instanceof CastExpr || val instanceof InstanceOfExpr || val instanceof ArrayRef 
 				|| val instanceof InvokeExpr || val instanceof NewExpr || val instanceof FieldRef) {
-			Local newLocal=locGen.generateLocal(val.getType());
-			locals.put(newLocal.getName(),newLocal);
-			Unit assign=Jimple.v().newAssignStmt(newLocal, val);
+			Local newLocal = locGen.generateLocal(val.getType());
+			locals.put(newLocal.getName(), newLocal);
+			Unit assign = Jimple.v().newAssignStmt(newLocal, val);
 			units.add(assign);
 			return newLocal;
 		}		
@@ -1065,89 +1060,89 @@ public class JavaMethodSource implements MethodSource {
 	}
 	
 	/**
-	 * Transform all parameters into locals. If the method isn't static, add a this-local
+	 * Transforms all parameters into locals. If the method isn't static, adds a this-local
 	 * @param m			soot-method containing information of the class, used for this-local
 	 * @param params	list of all parameters
 	 */
-	private void getParameter(SootMethod m,com.sun.tools.javac.util.List<JCVariableDecl> params) {
+	private void getParameter(SootMethod m, com.sun.tools.javac.util.List<JCVariableDecl> params) {
 		if (!meth.mods.toString().contains("static")) {
-			Local thisLocal=new JimpleLocal("thisLocal",m.getDeclaringClass().getType());
-			Unit thisIdent=Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(m.getDeclaringClass().getType()));
+			Local thisLocal = new JimpleLocal("thisLocal", m.getDeclaringClass().getType());
+			Unit thisIdent = Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(m.getDeclaringClass().getType()));
 			locals.put("thisLocal", thisLocal);
 			units.add(thisIdent);
 			if (m.getName().equals("<init>")) {
-				SootMethod method=thisMethod;
-				Value invoke=Jimple.v().newSpecialInvokeExpr(thisLocal,method.makeRef());
-				Unit specialinvoke=Jimple.v().newInvokeStmt(invoke);
+				SootMethod method = thisMethod;
+				Value invoke = Jimple.v().newSpecialInvokeExpr(thisLocal, method.makeRef());
+				Unit specialinvoke = Jimple.v().newInvokeStmt(invoke);
 				units.add(specialinvoke);
 			}
 		}
-		int paramcount=0;
-		while(params.head!=null) {
-			Value parameter=Jimple.v().newParameterRef(JavaUtil.getType(params.head.vartype, deps, thisMethod.getDeclaringClass().getPackageName()), paramcount++);
-			Local paramLocal=new JimpleLocal(params.head.name.toString(),JavaUtil.getType(params.head.vartype, deps, thisMethod.getDeclaringClass().getPackageName()));
-			Unit assign=Jimple.v().newIdentityStmt(paramLocal, parameter);
+		int paramcount = 0;
+		while(params.head != null) {
+			Value parameter = Jimple.v().newParameterRef(JavaUtil.getType(params.head.vartype, deps, thisMethod.getDeclaringClass().getPackageName()), paramcount++);
+			Local paramLocal = new JimpleLocal(params.head.name.toString(), JavaUtil.getType(params.head.vartype, deps, thisMethod.getDeclaringClass().getPackageName()));
+			Unit assign = Jimple.v().newIdentityStmt(paramLocal, parameter);
 			locals.put(paramLocal.getName(), paramLocal);
 			units.add(assign);
-			params=params.tail;
+			params = params.tail;
 		}
 			
 	}
 	
 	/**
-	 * If there is no constructor, make one with a this-variable
-	 * @param m	the consctructor as soot-method
+	 * Checks if there exists a constructor and if not, generates one in Jimple with a this-variable
+	 * @param m		the constructor as soot-method
 	 */
 	private void getThisVar(SootMethod m) {
-		Local thisLocal=new JimpleLocal("thisLocal",m.getDeclaringClass().getType());
-		Unit thisIdent=Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(m.getDeclaringClass().getType()));
+		Local thisLocal = new JimpleLocal("thisLocal", m.getDeclaringClass().getType());
+		Unit thisIdent = Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(m.getDeclaringClass().getType()));
 		locals.put("thisLocal", thisLocal);
 		units.add(thisIdent);
 		if (m.getName().equals("<init>")) {
-			SootMethod method=thisMethod;
-			Value invoke=Jimple.v().newSpecialInvokeExpr(thisLocal,method.makeRef());
-			Unit specialinvoke=Jimple.v().newInvokeStmt(invoke);
+			SootMethod method = thisMethod;
+			Value invoke = Jimple.v().newSpecialInvokeExpr(thisLocal, method.makeRef());
+			Unit specialinvoke = Jimple.v().newInvokeStmt(invoke);
 			units.add(specialinvoke);
 		}
 	}
 	
 	/**
-	 * Each field that gets its value outside of the methods needs to get it in every jimple-constructor.
+	 * Makes sure, that every field that gets its value outside of the methods, gets it in every Jimple-constructor.
 	 */
 	private void getFields() {
 		while (!fieldlist.isEmpty()) {
-			JCTree node=fieldlist.get(0);
-			SootField field=thisMethod.getDeclaringClass().getFieldByName(((JCVariableDecl)node).name.toString());
+			JCTree node = fieldlist.get(0);
+			SootField field = thisMethod.getDeclaringClass().getFieldByName(((JCVariableDecl)node).name.toString());
 			Value loc;
 			if (field.isStatic()) 
-				loc=Jimple.v().newStaticFieldRef(field.makeRef());
+				loc = Jimple.v().newStaticFieldRef(field.makeRef());
 			else
-				loc=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
-			Value rhs=checkBinary(getValue(((JCVariableDecl)node).init));
+				loc = Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
+			Value rhs = checkBinary(getValue(((JCVariableDecl)node).init));
 			if (!queue.isEmpty()) {
-				newclasslocal=(Local)rhs;
-				JCTree tree=queue.get(0);
+				newclasslocal = (Local)rhs;
+				JCTree tree = queue.get(0);
 				queue.remove(tree);
 				getHead(tree);
 			}
-			Unit assign=Jimple.v().newAssignStmt(loc, rhs);
+			Unit assign = Jimple.v().newAssignStmt(loc, rhs);
 			units.add(assign);
 			fieldlist.remove(node);
 		}
 	}
 	
 	/**
-	 * If the node is a block, transform it into single statements
+	 * If the node is a block, transforms it into single statements or else returns its head
 	 * @param node	node containing the block or a single statement
-	 * @return		either the first statement of the block or the only statement
+	 * @return		either the first statement of the block or the single statement
 	 */
 	private Unit noBlock(JCTree node) {
 		if (node instanceof JCBlock) {
-			if (((JCBlock) node).stats.head!=null)
+			if (((JCBlock) node).stats.head != null)
 				return getMethodBody(((JCBlock) node).stats);
 			else
 			{
-				Unit nop=Jimple.v().newNopStmt();
+				Unit nop = Jimple.v().newNopStmt();
 				units.add(nop);
 				return nop;
 			}
@@ -1157,10 +1152,10 @@ public class JavaMethodSource implements MethodSource {
 	}
 	
 	/**
-	 * Creates a method reference to an existing method
+	 * Creates a method reference in Jimple to an existing method
 	 * @param node				node containing a method invocation
 	 * @param parameterTypes	list of parameter types
-	 * @return					reference to matching method
+	 * @return					reference to the corresponding method in Jimple
 	 */
 	private SootMethodRef getMethodRef(JCTree node, List<Type> parameterTypes) {
 		if (node instanceof JCIdent)
@@ -1168,28 +1163,28 @@ public class JavaMethodSource implements MethodSource {
 		else { 
 			if (((JCFieldAccess)node).selected instanceof JCIdent) {
 				if (JavaUtil.isPackageName((JCIdent)((JCFieldAccess)node).selected,deps)) {
-					String packagename=JavaUtil.getPackage((JCIdent)((JCFieldAccess)node).selected, deps, thisMethod.getDeclaringClass().getPackageName());
-					SootClass klass=Scene.v().getSootClass(packagename);
-					SootMethod method=searchMethod(klass,((JCFieldAccess)node).name.toString(),parameterTypes);
+					String packagename = JavaUtil.getPackage((JCIdent)((JCFieldAccess)node).selected, deps, thisMethod.getDeclaringClass().getPackageName());
+					SootClass klass = Scene.v().getSootClass(packagename);
+					SootMethod method = searchMethod(klass,((JCFieldAccess)node).name.toString(),parameterTypes);
 					return method.makeRef();
 				}
 				else {
-					String packagename=locals.get((((JCFieldAccess)node).selected).toString()).getType().toString();
-					SootClass klass=Scene.v().getSootClass(packagename);
-					SootMethod method=searchMethod(klass,((JCFieldAccess)node).name.toString(),parameterTypes);
+					String packagename = locals.get((((JCFieldAccess)node).selected).toString()).getType().toString();
+					SootClass klass = Scene.v().getSootClass(packagename);
+					SootMethod method = searchMethod(klass, ((JCFieldAccess)node).name.toString(), parameterTypes);
 					return method.makeRef();
 				}
 			}
 			else if (((JCFieldAccess)node).selected instanceof JCMethodInvocation){
-				Value access=getMethodInvocation((JCMethodInvocation)((JCFieldAccess)node).selected);
-				SootClass klass=Scene.v().getSootClass(access.getType().toString());
-				SootMethod method=searchMethod(klass,((JCFieldAccess)node).name.toString(), parameterTypes);
+				Value access = getMethodInvocation((JCMethodInvocation)((JCFieldAccess)node).selected);
+				SootClass klass = Scene.v().getSootClass(access.getType().toString());
+				SootMethod method = searchMethod(klass,((JCFieldAccess)node).name.toString(), parameterTypes);
 				return method.makeRef();
 			}
 			else if (((JCFieldAccess)node).selected instanceof JCFieldAccess){		//FieldAccess
-				Local loc=(Local)checkBinary(getFieldAccess((JCFieldAccess)((JCFieldAccess)node).selected));
-				SootClass klass=Scene.v().getSootClass(loc.getType().toString());
-				SootMethod method=searchMethod(klass,((JCFieldAccess)node).name.toString(), parameterTypes);
+				Local loc = (Local)checkBinary(getFieldAccess((JCFieldAccess)((JCFieldAccess)node).selected));
+				SootClass klass = Scene.v().getSootClass(loc.getType().toString());
+				SootMethod method = searchMethod(klass,((JCFieldAccess)node).name.toString(), parameterTypes);
 				return method.makeRef();	} 
 			else
 				throw new AssertionError("Can't find method " + node.toString() + " " + parameterTypes.toString());
@@ -1198,68 +1193,68 @@ public class JavaMethodSource implements MethodSource {
 	
 	/**
 	 * Searches for a matching method, considers all superclasses and interfaces
-	 * @param klass				the base class, where either the class itself or its superclass contaings the method
+	 * @param klass				the base class, where either the class itself or its superclass contains the method
 	 * @param methodname		name of the wanted method
 	 * @param parameterTypes	types of the parameter, which can contain superclasses and interfaces
-	 * @return					the matching method
+	 * @return					the found method
 	 */
 	private SootMethod searchMethod(SootClass klass, String methodname, List<Type> parameterTypes) {
 		if (klass.declaresMethod(methodname, parameterTypes))		//class itself has the method with matching parameters
-			return klass.getMethod(methodname,parameterTypes);
+			return klass.getMethod(methodname, parameterTypes);
 		else 
 		{
-			SootClass currentclass=klass;
+			SootClass currentclass = klass;
 			while (currentclass.hasSuperclass() && !currentclass.declaresMethod(methodname, parameterTypes))
-				currentclass=currentclass.getSuperclass();
+				currentclass = currentclass.getSuperclass();
 			if (currentclass.declaresMethod(methodname, parameterTypes))		//go through all superclasses with exact parameter types
 				return currentclass.getMethod(methodname, parameterTypes);
 			else
 			{
-				currentclass=klass;
-				List<SootMethod> methodlist=currentclass.getMethods();			//search in class itself with supertypes/interfaces of parameter
+				currentclass = klass;
+				List<SootMethod> methodlist = currentclass.getMethods();			//search in class itself with supertypes/interfaces of parameter
 				for (int j=0; j<methodlist.size(); j++) {
 					if (methodlist.get(j).getName().equals(methodname)) {
-						SootMethod method=methodlist.get(j);
-						List<Type> paras=method.getParameterTypes();
-						boolean matches=false;
-						if (paras.size()==parameterTypes.size()) {
-								matches=true;
+						SootMethod method = methodlist.get(j);
+						List<Type> paras = method.getParameterTypes();
+						boolean matches = false;
+						if (paras.size() == parameterTypes.size()) {
+								matches = true;
 								for (int i=0; i<paras.size(); i++) {
 									if (paras.get(i) instanceof PrimType)
 										if (paras.get(i) instanceof CharType || paras.get(i) instanceof BooleanType)
-											matches=matches && (parameterTypes.get(i) instanceof IntType);
+											matches = matches && (parameterTypes.get(i) instanceof IntType);
 										else
-											matches=matches &&parameterTypes.get(i).equals(paras.get(i));
+											matches = matches && parameterTypes.get(i).equals(paras.get(i));
 									else
 									{
 										if (paras.get(i) instanceof RefType) {
 											if (parameterTypes.get(i) instanceof RefType) {
-												RefType rt=(RefType)parameterTypes.get(i);
+												RefType rt = (RefType)parameterTypes.get(i);
 												Chain<SootClass> interfaces = rt.getSootClass().getInterfaces();
-												while ((!rt.equals(paras.get(i)))&&rt.getSootClass().hasSuperclass()&&!(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
-													rt=rt.getSootClass().getSuperclass().getType();
-													interfaces=rt.getSootClass().getInterfaces();
+												while ((!rt.equals(paras.get(i))) && rt.getSootClass().hasSuperclass() && !(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
+													rt = rt.getSootClass().getSuperclass().getType();
+													interfaces = rt.getSootClass().getInterfaces();
 												}
-												matches=matches && (rt.equals(paras.get(i))||interfaces.contains(((RefType)paras.get(i)).getSootClass()));
+												matches = matches && (rt.equals(paras.get(i)) || interfaces.contains(((RefType)paras.get(i)).getSootClass()));
 											}
 											else
-												matches=false;
+												matches = false;
 											
 										}
 										else
 										{
 											if (paras.get(i) instanceof ArrayType) {
 												if (parameterTypes.get(i) instanceof ArrayType) {
-													RefType at=(RefType)((ArrayType) parameterTypes.get(i)).baseType;
+													RefType at = (RefType)((ArrayType) parameterTypes.get(i)).baseType;
 													Chain<SootClass> interfaces = at.getSootClass().getInterfaces();
-													while ((!at.equals(paras.get(i)))&&at.getSootClass().hasSuperclass()&&!(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
-														at=at.getSootClass().getSuperclass().getType();
-														interfaces=at.getSootClass().getInterfaces();
+													while ((!at.equals(paras.get(i))) && at.getSootClass().hasSuperclass() && !(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
+														at = at.getSootClass().getSuperclass().getType();
+														interfaces = at.getSootClass().getInterfaces();
 													}
-													matches=matches && (at.equals(paras.get(i))||interfaces.contains(((RefType)paras.get(i)).getSootClass()));
+													matches = matches && (at.equals(paras.get(i)) || interfaces.contains(((RefType)paras.get(i)).getSootClass()));
 												}
 												else
-													matches=false;
+													matches = false;
 											}
 										}
 							
@@ -1270,52 +1265,52 @@ public class JavaMethodSource implements MethodSource {
 						}
 					}
 				}
-				while (currentclass.hasSuperclass()) {				//search in superclasses for method with supertypes/interfaces of parameter
-					currentclass=currentclass.getSuperclass();
-					methodlist=currentclass.getMethods();
+				while (currentclass.hasSuperclass()) {				//searches in superclasses for method with supertypes/interfaces of parameter
+					currentclass = currentclass.getSuperclass();
+					methodlist = currentclass.getMethods();
 					for (int j=0; j<methodlist.size(); j++) {
 						if (methodlist.get(j).getName().equals(methodname)) {
-							SootMethod method=methodlist.get(j);
-							List<Type> paras=method.getParameterTypes();
-							boolean matches=false;
-							if (paras.size()==parameterTypes.size()) {
-								matches=true;
+							SootMethod method = methodlist.get(j);
+							List<Type> paras = method.getParameterTypes();
+							boolean matches = false;
+							if (paras.size() == parameterTypes.size()) {
+								matches = true;
 								for (int i=0; i<paras.size(); i++) {
 									if (paras.get(i) instanceof PrimType)
 										if (paras.get(i) instanceof CharType || paras.get(i) instanceof BooleanType)
-											matches=matches && (parameterTypes.get(i) instanceof IntType);
+											matches = matches && (parameterTypes.get(i) instanceof IntType);
 										else
-											matches=matches &&parameterTypes.get(i).equals(paras.get(i));
+											matches = matches && parameterTypes.get(i).equals(paras.get(i));
 									else
 									{
 										if (paras.get(i) instanceof RefType) {
 											if (parameterTypes.get(i) instanceof RefType) {
-												RefType rt=(RefType)parameterTypes.get(i);
+												RefType rt = (RefType)parameterTypes.get(i);
 												Chain<SootClass> interfaces = rt.getSootClass().getInterfaces();
-												while ((!rt.equals(paras.get(i)))&&rt.getSootClass().hasSuperclass()&&!(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
-													rt=rt.getSootClass().getSuperclass().getType();
-													interfaces=rt.getSootClass().getInterfaces();
+												while ((!rt.equals(paras.get(i))) && rt.getSootClass().hasSuperclass() && !(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
+													rt = rt.getSootClass().getSuperclass().getType();
+													interfaces = rt.getSootClass().getInterfaces();
 												}
-												matches=matches && (rt.equals(paras.get(i))||interfaces.contains(((RefType)paras.get(i)).getSootClass()));
+												matches = matches && (rt.equals(paras.get(i)) || interfaces.contains(((RefType)paras.get(i)).getSootClass()));
 											}
 											else
-												matches=false;
+												matches = false;
 											
 										}
 										else
 										{
 											if (paras.get(i) instanceof ArrayType) {
 												if (parameterTypes.get(i) instanceof ArrayType) {
-													RefType at=(RefType)((ArrayType) parameterTypes.get(i)).baseType;
+													RefType at = (RefType)((ArrayType) parameterTypes.get(i)).baseType;
 													Chain<SootClass> interfaces = at.getSootClass().getInterfaces();
-													while ((!at.equals(paras.get(i)))&&at.getSootClass().hasSuperclass()&&!(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
-														at=at.getSootClass().getSuperclass().getType();
-														interfaces=at.getSootClass().getInterfaces();
+													while ((!at.equals(paras.get(i))) && at.getSootClass().hasSuperclass() && !(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
+														at = at.getSootClass().getSuperclass().getType();
+														interfaces = at.getSootClass().getInterfaces();
 													}
-													matches=matches && (at.equals(paras.get(i))||interfaces.contains(((RefType)paras.get(i)).getSootClass()));
+													matches = matches && (at.equals(paras.get(i)) || interfaces.contains(((RefType)paras.get(i)).getSootClass()));
 												}
 												else
-													matches=false;
+													matches = false;
 											}
 										}
 									}
@@ -1331,31 +1326,31 @@ public class JavaMethodSource implements MethodSource {
 				 * ABOVE NOT TESTED, old tested code:
 				 * 
 				 * while (currentclass.hasSuperclass()) {				//search in superclasses for method with supertypes/interfaces of parameter
-					currentclass=currentclass.getSuperclass();
-					methodlist=currentclass.getMethods();
+					currentclass = currentclass.getSuperclass();
+					methodlist = currentclass.getMethods();
 					for (int j=0; j<methodlist.size(); j++) {
 						if (methodlist.get(j).getName().equals(methodname)) {
-							SootMethod method=methodlist.get(j);
-							List<Type> paras=method.getParameterTypes();
-							boolean matches=false;
-							if (paras.size()==parameterTypes.size()) {
-								matches=true;
+							SootMethod method = methodlist.get(j);
+							List<Type> paras = method.getParameterTypes();
+							boolean matches = false;
+							if (paras.size() == parameterTypes.size()) {
+								matches = true; 
 								for (int i=0; i<paras.size(); i++) {
 									if (paras.get(i) instanceof PrimType)
-										matches=matches &&parameterTypes.get(i).equals(paras.get(i));
+										matches = matches && parameterTypes.get(i).equals(paras.get(i));
 									else
 									{
 										if (paras.get(i) instanceof RefType) {
 											if (parameterTypes.get(i) instanceof PrimType)
 												continue;
-											RefType rt=(RefType)parameterTypes.get(i);
+											RefType rt = (RefType)parameterTypes.get(i);
 											Chain<SootClass> interfaces = rt.getSootClass().getInterfaces();
-											while ((!rt.equals(paras.get(i)))&&rt.getSootClass().hasSuperclass()&&!(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
-												rt=rt.getSootClass().getSuperclass().getType();
-												interfaces=rt.getSootClass().getInterfaces();
+											while ((!rt.equals(paras.get(i))) && rt.getSootClass().hasSuperclass() && !(interfaces.contains(((RefType)paras.get(i)).getSootClass()))) {
+												rt = rt.getSootClass().getSuperclass().getType();
+												interfaces = rt.getSootClass().getInterfaces();
 											}
 									
-											matches=matches && (parameterTypes.get(i).equals(paras.get(i))||interfaces.contains(((RefType)paras.get(i)).getSootClass()));
+											matches = matches && (parameterTypes.get(i).equals(paras.get(i)) || interfaces.contains(((RefType)paras.get(i)).getSootClass()));
 										}
 									}
 							
@@ -1374,14 +1369,14 @@ public class JavaMethodSource implements MethodSource {
 	
 	
 	/**
-	 * Delets all nop-statements used as a placeholder for jumps
-	 * @param jb	jimple-body containing the method
+	 * Deletes all nop-statements used as a placeholder for jumps
+	 * @param jb	Jimple-body containing the method
 	 */
 	private void deleteNops(JimpleBody jb) {
-		Iterator<Unit> iterator=jb.getUnits().iterator();
-		ArrayList<Unit> list=new ArrayList<>();
+		Iterator<Unit> iterator = jb.getUnits().iterator();
+		ArrayList<Unit> list = new ArrayList<>();
 		while (iterator.hasNext()) {
-			Unit unit=iterator.next();
+			Unit unit = iterator.next();
 			if (unit instanceof NopStmt)
 				list.add(unit);
 		}
@@ -1389,31 +1384,31 @@ public class JavaMethodSource implements MethodSource {
 	}
 	
 	/**
-	 * Checks if the node is an unary operation and returns true if its a prefix-increment/decrement
+	 * Checks an unary operation-node and returns true if its a prefix-increment/decrement
 	 * @param node	node containing the calculation
 	 * @return		true, if its a prefix-calculation, else false
 	 */
 	private boolean pre(JCTree node) {
-		if (node.toString().charAt(0)=='+' || node.toString().charAt(0)=='-')
+		if (node.toString().charAt(0) == '+' || node.toString().charAt(0) == '-')
 			return true;
 		return false;
 	}
 	
 	/**
-	 * Checks if the node is an unary operation and returns true if its a postfix-increment/decrement
+	 * Checks an unary operation-node and returns true if its a postfix-increment/decrement
 	 * @param node	node containing the calculation
 	 * @return		true, if its a postfix-calculation, else false
 	 */
 	private boolean post(JCTree node) {
-		if (node.toString().charAt(node.toString().length()-1)=='+' || node.toString().charAt(node.toString().length()-1)=='-')
+		if (node.toString().charAt(node.toString().length()-1) == '+' || node.toString().charAt(node.toString().length()-1) == '-')
 			return true;
 		return false;
 	}
 	
 	/**
-	 * Parens- and ExpressionStatment-nodes are irrelevant so ignore them
-	 * @param node	node to check if its a Parens- or ExpressionStatement-node
-	 * @return		child-node if it is one of them, else the node itself
+	 * Checks if the node is a Parens- or ExpressionStatment-node and ignores them because they are irrelevant for the Jimple-code
+	 * @param node	node to check 
+	 * @return		if true returns the child-node, else the node itself
 	 */
 	private JCTree ignoreNode(JCTree node) {
 		if (node instanceof JCParens)
@@ -1424,17 +1419,17 @@ public class JavaMethodSource implements MethodSource {
 	}
 	
 	/**
-	 * Search for last added local with a reference to the given class
-	 * @param ref	classname
+	 * Searches for the last added local with a reference to the given class
+	 * @param ref	name of the class
 	 * @return		last local with reference to class
 	 */
 	private Local getLastRefLocal(String ref) {					//TODO unsortiert
 		Iterator<Local> iter = locals.values().iterator();
-		Local ret=null;
+		Local ret = null;
 		while (iter.hasNext()) {
-			Local next=iter.next();
+			Local next = iter.next();
 			if (next.getType().toString().equals(ref))
-				ret=next;
+				ret = next;
 		}
 		return ret;
 	}
