@@ -4,7 +4,6 @@ import java.io.File;
 
 import soot.ClassProvider;
 import soot.ClassSource;
-import soot.Scene;
 import soot.SourceLocator;
 
 public class JavaClassProvider implements ClassProvider {

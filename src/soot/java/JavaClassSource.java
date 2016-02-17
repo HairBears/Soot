@@ -28,12 +28,11 @@ public class JavaClassSource extends ClassSource {
 	
 	//Path to java class file
 	File path;
-	ArrayList<JCTree> fieldlist;
+	
 
 	public JavaClassSource(String className, File path) {
 		super(className);
 		this.path = path;
-		fieldlist = new ArrayList<JCTree>();
 	}
 	
 	/*
@@ -73,23 +72,25 @@ public class JavaClassSource extends ClassSource {
 		deps.typesToSignature.add(RefType.v("java.lang.StringBuilder"));
 		deps.typesToSignature.add(RefType.v("java.io.Serializable"));
 		deps.typesToSignature.add(RefType.v("java.lang.AssertionError"));
+		deps.typesToSignature.add(RefType.v("java.lang.Enum"));
 		JCClassDecl classsig=(JCClassDecl) classDecl.head;
 		if (classsig.extending!=null)
-			sc.setSuperclass(Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)classsig.extending, deps, sc.getPackageName())));
+			sc.setSuperclass(Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)classsig.extending, deps, sc)));
 		else
 			sc.setSuperclass(Scene.v().getSootClass("java.lang.Object"));
 		if (classsig.implementing.head!=null) {
 			com.sun.tools.javac.util.List<JCExpression> interfacelist = classsig.implementing;
 			while (interfacelist.head!=null) {
-				sc.addInterface(Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)interfacelist.head, deps, sc.getPackageName())));
+				sc.addInterface(Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)interfacelist.head, deps, sc)));
 				interfacelist=interfacelist.tail;
 			}
 		}
 		sc.setModifiers(getModifiers(classsig.mods));
 		com.sun.tools.javac.util.List<JCTree> list = ((JCClassDecl) classDecl.head).defs;
+		ArrayList<JCTree> fieldlist = new ArrayList<JCTree>();
 		//Add all methods in this class
 		while (list.head != null) {
-			getHead(list.head, deps, sc);
+			getHead(list.head, deps, sc, fieldlist);
 			
 			list = list.tail;
 		}
@@ -105,20 +106,20 @@ public class JavaClassSource extends ClassSource {
 	}
 	
 	
-	private void getHead(JCTree node, Dependencies deps, SootClass sc) {
+	private void getHead(JCTree node, Dependencies deps, SootClass sc, ArrayList<JCTree> fieldlist) {
 		if (node instanceof JCMethodDecl) {
 			JCMethodDecl method = (JCMethodDecl)node;
 			com.sun.tools.javac.util.List<JCExpression> throwlist = method.thrown;
 			ArrayList<SootClass> throwlistmethod=new ArrayList<>();
 			while (throwlist.head!=null) {
-				String packagename=JavaUtil.getPackage((JCIdent)throwlist.head, deps, sc.getPackageName());
+				String packagename=JavaUtil.getPackage((JCIdent)throwlist.head, deps, sc);
 				throwlistmethod.add(Scene.v().getSootClass(packagename));
 				throwlist=throwlist.tail;
 			}
 			List<Type> parameterTypes = new ArrayList<>();
 			com.sun.tools.javac.util.List<JCVariableDecl> paramlist = method.params;
 			while (paramlist.head != null) {
-				Type type = JavaUtil.getType(paramlist.head.vartype, deps, sc.getPackageName());
+				Type type = JavaUtil.getType(paramlist.head.vartype, deps, sc);
 				if (type != null)
 					parameterTypes.add(type);
 				paramlist = paramlist.tail;
@@ -128,22 +129,74 @@ public class JavaClassSource extends ClassSource {
 			if (methodname.equals("<init>"))
 				returntype = VoidType.v();
 			else
-				returntype = JavaUtil.getType(method.restype, deps, sc.getPackageName());
+				returntype = JavaUtil.getType(method.restype, deps, sc);
 			int modifier = getModifiers((JCModifiers)method.mods);
 			if (sc.isInterface())
 				modifier |= Modifier.ABSTRACT;
 			sc.addMethod(new SootMethod(methodname, parameterTypes, returntype, modifier, throwlistmethod));
-			sc.getMethodByName(methodname).setSource(new JavaMethodSource(method, deps, fieldlist));
+			sc.getMethod(methodname, parameterTypes, returntype).setSource(new JavaMethodSource(method, deps, fieldlist));
 		}
 		if (node instanceof JCVariableDecl) {
 			String fieldname = ((JCVariableDecl) node).getName().toString();
-			Type fieldtype = JavaUtil.getType(((JCVariableDecl) node).vartype, deps, sc.getPackageName());
+			Type fieldtype = JavaUtil.getType(((JCVariableDecl) node).vartype, deps, sc);
 			int fieldmods = getModifiers(((JCVariableDecl) node).getModifiers());
 			SootField field = new SootField(fieldname, fieldtype, fieldmods);
 			sc.addField(field);
 			if (((JCVariableDecl)node).init != null) {
 				fieldlist.add(node);
 			}
+		}
+		if (node instanceof JCClassDecl) {
+			SootClass innerClass=new SootClass(sc.getName()+"$"+((JCClassDecl)node).name.toString());
+			Scene.v().addClass(innerClass);
+			Scene.v().getApplicationClasses().add(innerClass);
+			innerClass.setOuterClass(sc);
+			int mods=getModifiers(((JCClassDecl) node).mods);
+			if (node.toString().substring(0, node.toString().indexOf('{')).contains("enum")) {
+				mods |= Modifier.ENUM | Modifier.FINAL;
+			}
+			innerClass.setModifiers(mods);
+			if (((JCClassDecl)node).extending!=null)
+				innerClass.setSuperclass(Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)((JCClassDecl)node).extending, deps, sc)));
+			else if (Modifier.isEnum(innerClass.getModifiers()))
+				innerClass.setSuperclass(Scene.v().getSootClass("java.lang.Enum"));
+			else
+				innerClass.setSuperclass(Scene.v().getSootClass("java.lang.Object"));
+			if (((JCClassDecl)node).implementing.head!=null) {
+				com.sun.tools.javac.util.List<JCExpression> interfacelist = ((JCClassDecl)node).implementing;
+				while (interfacelist.head!=null) {
+					innerClass.addInterface(Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)interfacelist.head, deps, sc)));
+					interfacelist=interfacelist.tail;
+				}
+			}
+			
+			if (!Modifier.isEnum(innerClass.getModifiers())) {
+				String fieldname="this$0";
+				Type fieldtype=RefType.v(sc);
+				int fieldmods=Modifier.FINAL;
+				SootField field=new SootField(fieldname, fieldtype, fieldmods);
+				innerClass.addField(field);
+			}
+			
+			
+			com.sun.tools.javac.util.List<JCTree> list = ((JCClassDecl) node).defs;
+			ArrayList<JCTree> newfieldlist = new ArrayList<JCTree>();
+			//Add all methods in this class
+			while (list.head != null) {
+				getHead(list.head, deps, innerClass, newfieldlist);
+				
+				list = list.tail;
+			}
+			List<Type> parameterTypes = new ArrayList<>();
+			parameterTypes.add(RefType.v(sc));
+			if (!innerClass.declaresMethod("<init>", parameterTypes)) {
+				String methodname="<init>";
+				
+				Type returntype = VoidType.v();
+				innerClass.addMethod(new SootMethod(methodname, parameterTypes, returntype, Modifier.PUBLIC));
+				innerClass.getMethodByName(methodname).setSource(new JavaMethodSource(null, deps, newfieldlist));
+			}
+			
 		}
 	}
 	
