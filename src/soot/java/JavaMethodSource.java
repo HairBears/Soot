@@ -310,6 +310,429 @@ public class JavaMethodSource implements MethodSource {
 		}
 
 	/**
+	 * Translates a binary operation into a corresponding Jimple binary statement
+	 * @param node	node containing the binary operation
+	 * @return		binary operation in Jimple
+	 */
+	private Value getBinary(JCBinary node) {
+		Value left = checkBinary(getValue(node.lhs));
+		Value right = checkBinary(getValue(node.rhs));
+		if (left.getType().toString().equals("java.lang.String") || right.getType().toString().equals("java.lang.String")) {
+			RefType sbref = RefType.v("java.lang.StringBuilder");
+			RefType sref = RefType.v("java.lang.String");
+			Local stringbuilder = locGen.generateLocal(sbref);
+			Value stringbuilderval = Jimple.v().newNewExpr(sbref);
+			Unit assign = Jimple.v().newAssignStmt(stringbuilder, stringbuilderval);
+			units.add(assign);
+			Local valueofleft = locGen.generateLocal(sref);
+			ArrayList<Type> valueofpara = new ArrayList<>();
+			valueofpara.add(left.getType());
+			SootMethodRef valueofMethod = Scene.v().makeMethodRef(sref.getSootClass(), "valueOf", valueofpara, sref, true);	
+			Value toString = Jimple.v().newStaticInvokeExpr(valueofMethod, left);
+			Unit assignString = Jimple.v().newAssignStmt(valueofleft, toString);
+			units.add(assignString);
+			ArrayList<Value> parameter = new ArrayList<>();
+			ArrayList<Type> parameterTypes = new ArrayList<>();
+			parameter.add(valueofleft);
+			parameterTypes.add(valueofleft.getType());
+			SootMethodRef method = Scene.v().makeMethodRef(sbref.getSootClass(), "<init>", parameterTypes, VoidType.v(), false);
+			Value invoke = Jimple.v().newSpecialInvokeExpr(stringbuilder, method, valueofleft);
+			Unit specialinvoke = Jimple.v().newInvokeStmt(invoke);
+			units.add(specialinvoke);
+			ArrayList<Type> appendTypes = new ArrayList<>();
+			appendTypes.add(right.getType());
+			SootMethodRef append = Scene.v().makeMethodRef(sbref.getSootClass(), "append", appendTypes, sbref, false);
+			Value appendvalue = Jimple.v().newVirtualInvokeExpr(stringbuilder, append, right);
+			Local appendlocal = locGen.generateLocal(sbref);
+			Unit assignappend = Jimple.v().newAssignStmt(appendlocal, appendvalue);
+			units.add(assignappend);
+			ArrayList<Type> toStringTypes = new  ArrayList<>();
+			SootMethodRef returnstring = Scene.v().makeMethodRef(sbref.getSootClass(), "toString", toStringTypes, sref, false);
+			Value returnvalue = Jimple.v().newVirtualInvokeExpr(appendlocal, returnstring);
+			return returnvalue;
+		}
+		else {
+			String findOperator = node.toString().replace(node.lhs.toString(), "");
+			if (findOperator.charAt(1) == '+')
+				return Jimple.v().newAddExpr(left, right);
+			else if (findOperator.charAt(1) == '-')
+				return Jimple.v().newSubExpr(left, right);
+			else if (findOperator.charAt(1) == '&')
+				return Jimple.v().newAndExpr(left, right);
+			else if (findOperator.charAt(1) == '|')
+				return Jimple.v().newOrExpr(left, right);
+			else if (findOperator.charAt(1) == '*')
+				return Jimple.v().newMulExpr(left, right);
+			else if (findOperator.charAt(1) == '/')
+				return Jimple.v().newDivExpr(left, right);
+			else if (findOperator.charAt(1) == '%')
+				return Jimple.v().newRemExpr(left, right);
+			else if (findOperator.charAt(1) == '^')
+				return Jimple.v().newXorExpr(left, right);
+			else if (findOperator.charAt(3) == '>' && findOperator.charAt(2) == '>' && findOperator.charAt(1) == '>')
+				return Jimple.v().newUshrExpr(left, right);
+			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '>')
+				return Jimple.v().newGeExpr(left, right);
+			else if (findOperator.charAt(2) == '>' && findOperator.charAt(1) == '>')
+				return Jimple.v().newShrExpr(left, right);
+			else if (findOperator.charAt(1) == '>')
+				return Jimple.v().newGtExpr(left, right);
+			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '<')
+				return Jimple.v().newLeExpr(left, right);
+			else if (findOperator.charAt(2) == '<' && findOperator.charAt(1) == '<')
+				return Jimple.v().newShlExpr(left, right);
+			else if (findOperator.charAt(1) == '<')
+				return Jimple.v().newLtExpr(left, right);
+			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '=')
+				return Jimple.v().newEqExpr(left, right);
+			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '!')
+				return Jimple.v().newNeExpr(left, right);
+			else
+				throw new AssertionError("Unknown binary operation in " + node.toString());
+		}
+	}
+	
+	/**
+	 * Translates a unary operation into a binary Jimple statement
+	 * @param node	node containing the unary operation
+	 * @return		corresponding binary operation in Jimple
+	 */
+	private Value getUnary(JCUnary node) {
+		JCTree treeNode = ignoreNode(node.arg);
+		Value value = checkBinary(getValue(treeNode));
+		String findOperator = node.toString();
+		if (findOperator.charAt(0) == '!') {
+			return Jimple.v().newEqExpr(value, IntConstant.v(0));
+		}
+		if (findOperator.charAt(0) == '~')
+			return Jimple.v().newXorExpr(value, IntConstant.v(-1));
+		if (findOperator.charAt(0) == '+' && findOperator.charAt(1) == '+') {
+			Unit increase = Jimple.v().newAssignStmt(value, Jimple.v().newAddExpr(value, IntConstant.v(1)));
+			units.add(increase);
+			return value;
+		}
+		if (findOperator.charAt(0) == '-' && findOperator.charAt(1) == '-') {
+			Unit increase = Jimple.v().newAssignStmt(value, Jimple.v().newSubExpr(value, IntConstant.v(1)));
+			units.add(increase);
+			return value;
+		}
+		if ((findOperator.charAt(findOperator.length()-2) == '+' && findOperator.charAt(findOperator.length()-1) == '+' ) 
+					|| (findOperator.charAt(findOperator.length()-2) == '-' && findOperator.charAt(findOperator.length()-1) == '-'))
+			return value;		
+		else
+			throw new AssertionError("Unknown unary value in " + node.toString());
+	}	
+	
+	/**
+	 * Translate an instance of-expression into a corresponding Jimple statement
+	 * @param node	node containing the instance of-expression
+	 * @return		equal Jimple instance of-expression
+	 */
+	private Value getInstanceOf(JCInstanceOf node) {
+		Value instance = Jimple.v().newInstanceOfExpr(checkBinary(getValue(node.expr)), JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass()));
+		Value local = locGen.generateLocal(instance.getType());
+		Unit assign = Jimple.v().newAssignStmt(local, instance);
+		units.add(assign);
+		Value returnInstOf = Jimple.v().newEqExpr(local, IntConstant.v(1));
+		return returnInstOf;
+	}
+	
+	/**
+	 * Translates a type cast into a corresponding Jimple type cast
+	 * @param node	node containing the type cast
+	 * @return		type cast in Jimple
+	 */
+	private Value getTypeCast(JCTypeCast node) {
+		Value typecast = Jimple.v().newCastExpr(getValue(node.expr), JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass()));
+		return typecast;
+	}
+	
+	/**
+	 * Translates an array access into a corresponding Jimple array access
+	 * @param node	node containing the array access
+	 * @return		the array access as a value
+	 */
+	private Value getArrayAccess(JCArrayAccess node) {
+		Value array = Jimple.v().newArrayRef(getValue(node.indexed), checkBinary(getValue(node.index)));
+		return array;
+	}
+	
+	/**
+	 * Translates a new-expression into a corresponding Jimple new-expression
+	 * @param node	node containing the new-expression
+	 * @return		new-expression in Jimple
+	 */
+	private Value getNewClass(JCNewClass node) {
+		Value newClass = Jimple.v().newNewExpr((RefType) JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass()));
+		queue.add(node);
+		return newClass;
+	}
+	
+	/**
+	 * Translates a ternary operator (x?x:x) into an if-statement in Jimple
+	 * @param node	node containing the ternary term
+	 * @return		first if-statement in Jimple
+	 */
+	private Value getConditional (JCConditional node) {
+		JCTree treeNode = ignoreNode(node.cond);
+		Value condition = getValue(treeNode);
+		Value truepart = getValue(node.truepart);
+		Value falsepart = null;
+		if (node.falsepart != null)
+			falsepart = getValue(node.falsepart);
+		
+		Local returnlocal = locGen.generateLocal(truepart.getType() instanceof NullType ? falsepart.getType() : truepart.getType());
+		Unit nopTrue = Jimple.v().newNopStmt();
+		IfStmt ifstmt = Jimple.v().newIfStmt(condition, nopTrue);
+		units.add(ifstmt);
+		if (node.falsepart != null) {
+			Unit assignfalse = Jimple.v().newAssignStmt(returnlocal, falsepart);
+			units.add(assignfalse);
+		}
+		Unit nopEnd = Jimple.v().newNopStmt();
+		Unit elseEnd = Jimple.v().newGotoStmt(nopEnd);
+		units.add(elseEnd);
+		units.add(nopTrue);
+		Unit assigntrue = Jimple.v().newAssignStmt(returnlocal, truepart);
+		units.add(assigntrue);
+		units.add(nopEnd);
+		return returnlocal;
+	}
+	
+	/**
+	 * Translates number into a jimple-constant
+	 * @param node	node containing the value
+	 * @return		matching jimple-constant with value
+	 */
+	private Constant getConstant(JCLiteral node) {
+		if (node.typetag.name().equals("INT"))
+			return IntConstant.v((int)node.value);
+		if (node.typetag.name().equals("LONG"))
+			return LongConstant.v((long)node.value);
+		if (node.typetag.name().equals("DOUBLE"))
+			return DoubleConstant.v((double)node.value);
+		if (node.typetag.name().equals("FLOAT"))
+			return FloatConstant.v((float)node.value);
+		if (node.typetag.name().equals("BOOLEAN"))
+			return IntConstant.v((int)node.value);
+		if (node.toString().charAt(0) == '"')
+			return StringConstant.v((String)node.value);
+		if (node.typetag.name().equals("BOT"))
+			return NullConstant.v();
+		if (node.typetag.name().equals("CHAR"))
+			return IntConstant.v((int)node.value);
+		else
+			throw new AssertionError("Unknown type of constant " + node.toString());
+	}
+	
+	/**
+	 * Searches for a local from this method or from a field
+	 * @param node	node containing the name of the variable
+	 * @return		the found local
+	 */
+	private Value getLocal(JCIdent node) {
+		Value loc;
+		if (locals.containsKey(node.toString()))
+			loc = locals.get(node.toString());
+		else
+		{
+			if (thisMethod.getDeclaringClass().declaresFieldByName(node.toString())) {
+				SootField field = thisMethod.getDeclaringClass().getFieldByName(node.toString());
+				if (field.isStatic()) 
+					loc = Jimple.v().newStaticFieldRef(field.makeRef());
+				else
+					loc = Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
+			}
+			else			
+				throw new AssertionError("Unknown local " + node.toString());
+		}
+		return loc;
+	}
+	
+	/**
+	 * Translates a field access in an other class in Jimple
+	 * @param node	node containing the field access
+	 * @return		translated field access
+	 */
+	private Value getFieldAccess(JCFieldAccess node) {
+		Value loc;
+		if (JavaUtil.isPackageName((JCIdent)node.selected, deps)) {
+			SootClass clazz = Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)node.selected, deps, thisMethod.getDeclaringClass() ));
+			loc = Jimple.v().newStaticFieldRef(clazz.getFieldByName(node.name.toString()).makeRef());
+			return loc;
+		}
+		else
+		{
+			Value val = getLocal((JCIdent)node.selected);
+			if (val.getType() instanceof ArrayType && node.name.toString().equals("length")) {
+				loc=Jimple.v().newLengthExpr(val);
+			}
+			else {
+				SootClass clazz = Scene.v().getSootClass(val.getType().toString());
+				loc = Jimple.v().newInstanceFieldRef(val, clazz.getFieldByName(node.name.toString()).makeRef());
+			}
+			return loc;
+		} 		
+	}	
+	
+	/**
+	 * Transforms all parameters into locals. If the method isn't static, adds a this-local
+	 * @param m			soot-method containing information of the class, used for this-local
+	 * @param params	list of all parameters
+	 */
+	private void getParameter(SootMethod m, com.sun.tools.javac.util.List<JCVariableDecl> params) {
+		if (!meth.mods.toString().contains("static")) {
+			Local thisLocal = new JimpleLocal("thisLocal", m.getDeclaringClass().getType());
+			Unit thisIdent = Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(m.getDeclaringClass().getType()));
+			locals.put("thisLocal", thisLocal);
+			units.add(thisIdent);
+		}
+		int paramcount = 0;
+		while(params.head != null) {
+			Value parameter = Jimple.v().newParameterRef(JavaUtil.getType(params.head.vartype, deps, thisMethod.getDeclaringClass()), paramcount++);
+			Local paramLocal = new JimpleLocal(params.head.name.toString(), JavaUtil.getType(params.head.vartype, deps, thisMethod.getDeclaringClass()));
+			Unit assign = Jimple.v().newIdentityStmt(paramLocal, parameter);
+			locals.put(paramLocal.getName(), paramLocal);
+			units.add(assign);
+			params = params.tail;
+			
+			if (thisMethod.getDeclaringClass().hasOuterClass() && paramLocal.getType().equals(RefType.v(thisMethod.getDeclaringClass().getOuterClass()))) {
+				Value lhs=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), thisMethod.getDeclaringClass().getFieldByName("this$0").makeRef());
+				Unit assignOuterClass=Jimple.v().newAssignStmt(lhs, paramLocal);
+				units.add(assignOuterClass);
+			}
+		}
+		if (m.getName().equals("<init>")) {
+			ArrayList<Type> parameterTypes=new ArrayList<>();
+			SootMethod method = thisMethod.getDeclaringClass().getSuperclass().getMethod("<init>", parameterTypes);
+			Value invoke = Jimple.v().newSpecialInvokeExpr(locals.get("thisLocal"), method.makeRef());
+			Unit specialinvoke = Jimple.v().newInvokeStmt(invoke);
+			units.add(specialinvoke);
+		}
+			
+	}
+	
+	/**
+	 * Checks if there exists a constructor and if not, generates one in Jimple with a this-variable
+	 * @param m		the constructor as soot-method
+	 */
+	private void getThisVar(SootMethod m) {
+		Local thisLocal = new JimpleLocal("thisLocal", m.getDeclaringClass().getType());
+		Unit thisIdent = Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(m.getDeclaringClass().getType()));
+		locals.put("thisLocal", thisLocal);
+		units.add(thisIdent);
+		if (thisMethod.getDeclaringClass().isInnerClass()) {
+			SootClass outerClass=thisMethod.getDeclaringClass().getOuterClass();
+			Value parameter=Jimple.v().newParameterRef(RefType.v(outerClass), 0);
+			Local paramLocal = new JimpleLocal("outerLocal", RefType.v(outerClass));
+			locals.put(paramLocal.getName(), paramLocal);
+			Unit assign = Jimple.v().newIdentityStmt(paramLocal, parameter);
+			units.add(assign);
+			Value lhs=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), thisMethod.getDeclaringClass().getFieldByName("this$0").makeRef());
+			Unit assignOuterClass=Jimple.v().newAssignStmt(lhs, paramLocal);
+			units.add(assignOuterClass);
+		}
+		if (m.getName().equals("<init>")) {
+			ArrayList<Type> parameterTypes=new ArrayList<>();
+			SootMethod method = thisMethod.getDeclaringClass().getSuperclass().getMethod("<init>", parameterTypes);
+			Value invoke = Jimple.v().newSpecialInvokeExpr(thisLocal, method.makeRef());
+			Unit specialinvoke = Jimple.v().newInvokeStmt(invoke);
+			units.add(specialinvoke);
+		}
+		
+	}
+	
+	/**
+	 * Makes sure, that every field that gets its value outside of the methods, gets it in every Jimple-constructor.
+	 */
+	private void getFields() {
+		while (!fieldlist.isEmpty()) {
+			JCTree node = fieldlist.get(0);
+			SootField field = thisMethod.getDeclaringClass().getFieldByName(((JCVariableDecl)node).name.toString());
+			Value loc;
+			if (field.isStatic()) 
+				loc = Jimple.v().newStaticFieldRef(field.makeRef());
+			else
+				loc = Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
+			Value rhs = checkBinary(getValue(((JCVariableDecl)node).init));
+			if (!queue.isEmpty()) {
+				newclasslocal = (Local)rhs;
+				JCTree tree = queue.get(0);
+				queue.remove(tree);
+				getHead(tree);
+			}
+			Unit assign = Jimple.v().newAssignStmt(loc, rhs);
+			units.add(assign);
+			fieldlist.remove(node);
+		}
+	}
+	
+	/**
+	 * Creates a method reference in Jimple to an existing method
+	 * @param node				node containing a method invocation
+	 * @param parameterTypes	list of parameter types
+	 * @return					reference to the corresponding method in Jimple
+	 */
+	private SootMethodRef getMethodRef(JCTree node, List<Type> parameterTypes) {
+		SootMethod method=null;
+		if (node instanceof JCIdent)
+			return searchMethod(thisMethod.getDeclaringClass(), node.toString(), parameterTypes).makeRef();
+		else { 
+			if (((JCFieldAccess)node).selected instanceof JCIdent) {
+				if (JavaUtil.isPackageName((JCIdent)((JCFieldAccess)node).selected,deps)) {
+					String packagename = JavaUtil.getPackage((JCIdent)((JCFieldAccess)node).selected, deps, thisMethod.getDeclaringClass());
+					SootClass klass = Scene.v().getSootClass(packagename);
+					method = searchMethod(klass,((JCFieldAccess)node).name.toString(),parameterTypes);
+				}
+				else {
+					String packagename = locals.get((((JCFieldAccess)node).selected).toString()).getType().toString();
+					SootClass klass = Scene.v().getSootClass(packagename);
+					method = searchMethod(klass, ((JCFieldAccess)node).name.toString(), parameterTypes);
+				}
+			}
+			else if (((JCFieldAccess)node).selected instanceof JCMethodInvocation){
+				Value access = getMethodInvocation((JCMethodInvocation)((JCFieldAccess)node).selected);
+				SootClass klass;
+				if (access.getType() instanceof PrimType || access.getType() instanceof ArrayType)
+					klass=Scene.v().getSootClass("java.lang.Object");
+				else
+					klass = Scene.v().getSootClass(access.getType().toString());
+				method = searchMethod(klass,((JCFieldAccess)node).name.toString(), parameterTypes);
+			}
+			else if (((JCFieldAccess)node).selected instanceof JCFieldAccess){		//FieldAccess
+				Local loc = (Local)checkBinary(getFieldAccess((JCFieldAccess)((JCFieldAccess)node).selected));
+				SootClass klass;
+				if (loc.getType() instanceof PrimType || loc.getType() instanceof ArrayType)
+					klass=Scene.v().getSootClass("java.lang.Object");
+				else
+					klass = Scene.v().getSootClass(loc.getType().toString());
+				method = searchMethod(klass,((JCFieldAccess)node).name.toString(), parameterTypes);
+			}				
+		}
+		if (method!=null)
+			return method.makeRef();
+		else
+			throw new AssertionError("Can't find method " + node.toString() + " " + parameterTypes.toString());
+	}
+	
+	/**
+	 * Searches for the last added local with a reference to the given class
+	 * @param ref	name of the class
+	 * @return		last local with reference to class
+	 */
+	private Local getLastRefLocal(String ref) {					//TODO unsortiert
+		Iterator<Local> iter = locals.values().iterator();
+		Local ret = null;
+		while (iter.hasNext()) {
+			Local next = iter.next();
+			if (next.getType().toString().equals(ref))
+				ret = next;
+		}
+		return ret;
+	}
+	
+	
+	/**
 	 * Translates a method invocation without a return
 	 * @param node	node containing the method invocation
 	 * @return		A Jimple method invocation as a separate line
@@ -872,271 +1295,7 @@ public class JavaMethodSource implements MethodSource {
 	}
 
 	
-	/**
-	 * Translates a binary operation into a corresponding Jimple binary statement
-	 * @param node	node containing the binary operation
-	 * @return		binary operation in Jimple
-	 */
-	private Value getBinary(JCBinary node) {
-		Value left = checkBinary(getValue(node.lhs));
-		Value right = checkBinary(getValue(node.rhs));
-		if (left.getType().toString().equals("java.lang.String") || right.getType().toString().equals("java.lang.String")) {
-			RefType sbref = RefType.v("java.lang.StringBuilder");
-			RefType sref = RefType.v("java.lang.String");
-			Local stringbuilder = locGen.generateLocal(sbref);
-			Value stringbuilderval = Jimple.v().newNewExpr(sbref);
-			Unit assign = Jimple.v().newAssignStmt(stringbuilder, stringbuilderval);
-			units.add(assign);
-			Local valueofleft = locGen.generateLocal(sref);
-			ArrayList<Type> valueofpara = new ArrayList<>();
-			valueofpara.add(left.getType());
-			SootMethodRef valueofMethod = Scene.v().makeMethodRef(sref.getSootClass(), "valueOf", valueofpara, sref, true);	
-			Value toString = Jimple.v().newStaticInvokeExpr(valueofMethod, left);
-			Unit assignString = Jimple.v().newAssignStmt(valueofleft, toString);
-			units.add(assignString);
-			ArrayList<Value> parameter = new ArrayList<>();
-			ArrayList<Type> parameterTypes = new ArrayList<>();
-			parameter.add(valueofleft);
-			parameterTypes.add(valueofleft.getType());
-			SootMethodRef method = Scene.v().makeMethodRef(sbref.getSootClass(), "<init>", parameterTypes, VoidType.v(), false);
-			Value invoke = Jimple.v().newSpecialInvokeExpr(stringbuilder, method, valueofleft);
-			Unit specialinvoke = Jimple.v().newInvokeStmt(invoke);
-			units.add(specialinvoke);
-			ArrayList<Type> appendTypes = new ArrayList<>();
-			appendTypes.add(right.getType());
-			SootMethodRef append = Scene.v().makeMethodRef(sbref.getSootClass(), "append", appendTypes, sbref, false);
-			Value appendvalue = Jimple.v().newVirtualInvokeExpr(stringbuilder, append, right);
-			Local appendlocal = locGen.generateLocal(sbref);
-			Unit assignappend = Jimple.v().newAssignStmt(appendlocal, appendvalue);
-			units.add(assignappend);
-			ArrayList<Type> toStringTypes = new  ArrayList<>();
-			SootMethodRef returnstring = Scene.v().makeMethodRef(sbref.getSootClass(), "toString", toStringTypes, sref, false);
-			Value returnvalue = Jimple.v().newVirtualInvokeExpr(appendlocal, returnstring);
-			return returnvalue;
-		}
-		else {
-			String findOperator = node.toString().replace(node.lhs.toString(), "");
-			if (findOperator.charAt(1) == '+')
-				return Jimple.v().newAddExpr(left, right);
-			else if (findOperator.charAt(1) == '-')
-				return Jimple.v().newSubExpr(left, right);
-			else if (findOperator.charAt(1) == '&')
-				return Jimple.v().newAndExpr(left, right);
-			else if (findOperator.charAt(1) == '|')
-				return Jimple.v().newOrExpr(left, right);
-			else if (findOperator.charAt(1) == '*')
-				return Jimple.v().newMulExpr(left, right);
-			else if (findOperator.charAt(1) == '/')
-				return Jimple.v().newDivExpr(left, right);
-			else if (findOperator.charAt(1) == '%')
-				return Jimple.v().newRemExpr(left, right);
-			else if (findOperator.charAt(1) == '^')
-				return Jimple.v().newXorExpr(left, right);
-			else if (findOperator.charAt(3) == '>' && findOperator.charAt(2) == '>' && findOperator.charAt(1) == '>')
-				return Jimple.v().newUshrExpr(left, right);
-			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '>')
-				return Jimple.v().newGeExpr(left, right);
-			else if (findOperator.charAt(2) == '>' && findOperator.charAt(1) == '>')
-				return Jimple.v().newShrExpr(left, right);
-			else if (findOperator.charAt(1) == '>')
-				return Jimple.v().newGtExpr(left, right);
-			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '<')
-				return Jimple.v().newLeExpr(left, right);
-			else if (findOperator.charAt(2) == '<' && findOperator.charAt(1) == '<')
-				return Jimple.v().newShlExpr(left, right);
-			else if (findOperator.charAt(1) == '<')
-				return Jimple.v().newLtExpr(left, right);
-			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '=')
-				return Jimple.v().newEqExpr(left, right);
-			else if (findOperator.charAt(2) == '=' && findOperator.charAt(1) == '!')
-				return Jimple.v().newNeExpr(left, right);
-			else
-				throw new AssertionError("Unknown binary operation in " + node.toString());
-		}
-	}
-	
-	/**
-	 * Translates a unary operation into a binary Jimple statement
-	 * @param node	node containing the unary operation
-	 * @return		corresponding binary operation in Jimple
-	 */
-	private Value getUnary(JCUnary node) {
-		JCTree treeNode = ignoreNode(node.arg);
-		Value value = checkBinary(getValue(treeNode));
-		String findOperator = node.toString();
-		if (findOperator.charAt(0) == '!') {
-			return Jimple.v().newEqExpr(value, IntConstant.v(0));
-		}
-		if (findOperator.charAt(0) == '~')
-			return Jimple.v().newXorExpr(value, IntConstant.v(-1));
-		if (findOperator.charAt(0) == '+' && findOperator.charAt(1) == '+') {
-			Unit increase = Jimple.v().newAssignStmt(value, Jimple.v().newAddExpr(value, IntConstant.v(1)));
-			units.add(increase);
-			return value;
-		}
-		if (findOperator.charAt(0) == '-' && findOperator.charAt(1) == '-') {
-			Unit increase = Jimple.v().newAssignStmt(value, Jimple.v().newSubExpr(value, IntConstant.v(1)));
-			units.add(increase);
-			return value;
-		}
-		if ((findOperator.charAt(findOperator.length()-2) == '+' && findOperator.charAt(findOperator.length()-1) == '+' ) 
-					|| (findOperator.charAt(findOperator.length()-2) == '-' && findOperator.charAt(findOperator.length()-1) == '-'))
-			return value;		
-		else
-			throw new AssertionError("Unknown unary value in " + node.toString());
-	}	
-	
-	/**
-	 * Translate an instance of-expression into a corresponding Jimple statement
-	 * @param node	node containing the instance of-expression
-	 * @return		equal Jimple instance of-expression
-	 */
-	private Value getInstanceOf(JCInstanceOf node) {
-		Value instance = Jimple.v().newInstanceOfExpr(checkBinary(getValue(node.expr)), JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass()));
-		Value local = locGen.generateLocal(instance.getType());
-		Unit assign = Jimple.v().newAssignStmt(local, instance);
-		units.add(assign);
-		Value returnInstOf = Jimple.v().newEqExpr(local, IntConstant.v(1));
-		return returnInstOf;
-	}
-	
-	/**
-	 * Translates a type cast into a corresponding Jimple type cast
-	 * @param node	node containing the type cast
-	 * @return		type cast in Jimple
-	 */
-	private Value getTypeCast(JCTypeCast node) {
-		Value typecast = Jimple.v().newCastExpr(getValue(node.expr), JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass()));
-		return typecast;
-	}
-	
-	/**
-	 * Translates an array access into a corresponding Jimple array access
-	 * @param node	node containing the array access
-	 * @return		the array access as a value
-	 */
-	private Value getArrayAccess(JCArrayAccess node) {
-		Value array = Jimple.v().newArrayRef(getValue(node.indexed), checkBinary(getValue(node.index)));
-		return array;
-	}
-	
-	/**
-	 * Translates a new-expression into a corresponding Jimple new-expression
-	 * @param node	node containing the new-expression
-	 * @return		new-expression in Jimple
-	 */
-	private Value getNewClass(JCNewClass node) {
-		Value newClass = Jimple.v().newNewExpr((RefType) JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass()));
-		queue.add(node);
-		return newClass;
-	}
-	
-	/**
-	 * Translates a ternary operator (x?x:x) into an if-statement in Jimple
-	 * @param node	node containing the ternary term
-	 * @return		first if-statement in Jimple
-	 */
-	private Value getConditional (JCConditional node) {
-		JCTree treeNode = ignoreNode(node.cond);
-		Value condition = getValue(treeNode);
-		Value truepart = getValue(node.truepart);
-		Value falsepart = null;
-		if (node.falsepart != null)
-			falsepart = getValue(node.falsepart);
-		
-		Local returnlocal = locGen.generateLocal(truepart.getType() instanceof NullType ? falsepart.getType() : truepart.getType());
-		Unit nopTrue = Jimple.v().newNopStmt();
-		IfStmt ifstmt = Jimple.v().newIfStmt(condition, nopTrue);
-		units.add(ifstmt);
-		if (node.falsepart != null) {
-			Unit assignfalse = Jimple.v().newAssignStmt(returnlocal, falsepart);
-			units.add(assignfalse);
-		}
-		Unit nopEnd = Jimple.v().newNopStmt();
-		Unit elseEnd = Jimple.v().newGotoStmt(nopEnd);
-		units.add(elseEnd);
-		units.add(nopTrue);
-		Unit assigntrue = Jimple.v().newAssignStmt(returnlocal, truepart);
-		units.add(assigntrue);
-		units.add(nopEnd);
-		return returnlocal;
-	}
-	
-	/**
-	 * Translates number into a jimple-constant
-	 * @param node	node containing the value
-	 * @return		matching jimple-constant with value
-	 */
-	private Constant getConstant(JCLiteral node) {
-		if (node.typetag.name().equals("INT"))
-			return IntConstant.v((int)node.value);
-		if (node.typetag.name().equals("LONG"))
-			return LongConstant.v((long)node.value);
-		if (node.typetag.name().equals("DOUBLE"))
-			return DoubleConstant.v((double)node.value);
-		if (node.typetag.name().equals("FLOAT"))
-			return FloatConstant.v((float)node.value);
-		if (node.typetag.name().equals("BOOLEAN"))
-			return IntConstant.v((int)node.value);
-		if (node.toString().charAt(0) == '"')
-			return StringConstant.v((String)node.value);
-		if (node.typetag.name().equals("BOT"))
-			return NullConstant.v();
-		if (node.typetag.name().equals("CHAR"))
-			return IntConstant.v((int)node.value);
-		else
-			throw new AssertionError("Unknown type of constant " + node.toString());
-	}
-	
-	/**
-	 * Searches for a local from this method or from a field
-	 * @param node	node containing the name of the variable
-	 * @return		the found local
-	 */
-	private Value getLocal(JCIdent node) {
-		Value loc;
-		if (locals.containsKey(node.toString()))
-			loc = locals.get(node.toString());
-		else
-		{
-			if (thisMethod.getDeclaringClass().declaresFieldByName(node.toString())) {
-				SootField field = thisMethod.getDeclaringClass().getFieldByName(node.toString());
-				if (field.isStatic()) 
-					loc = Jimple.v().newStaticFieldRef(field.makeRef());
-				else
-					loc = Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
-			}
-			else			
-				throw new AssertionError("Unknown local " + node.toString());
-		}
-		return loc;
-	}
-	
-	/**
-	 * Translates a field access in an other class in Jimple
-	 * @param node	node containing the field access
-	 * @return		translated field access
-	 */
-	private Value getFieldAccess(JCFieldAccess node) {
-		Value loc;
-		if (JavaUtil.isPackageName((JCIdent)node.selected, deps)) {
-			SootClass clazz = Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)node.selected, deps, thisMethod.getDeclaringClass() ));
-			loc = Jimple.v().newStaticFieldRef(clazz.getFieldByName(node.name.toString()).makeRef());
-			return loc;
-		}
-		else
-		{
-			Value val = getLocal((JCIdent)node.selected);
-			if (val.getType() instanceof ArrayType && node.name.toString().equals("length")) {
-				loc=Jimple.v().newLengthExpr(val);
-			}
-			else {
-				SootClass clazz = Scene.v().getSootClass(val.getType().toString());
-				loc = Jimple.v().newInstanceFieldRef(val, clazz.getFieldByName(node.name.toString()).makeRef());
-			}
-			return loc;
-		} 		
-	}
+
 	
 	/**
 	 * Checks, if the value is a binary operation. 
@@ -1156,97 +1315,7 @@ public class JavaMethodSource implements MethodSource {
 		return val;
 	}
 	
-	/**
-	 * Transforms all parameters into locals. If the method isn't static, adds a this-local
-	 * @param m			soot-method containing information of the class, used for this-local
-	 * @param params	list of all parameters
-	 */
-	private void getParameter(SootMethod m, com.sun.tools.javac.util.List<JCVariableDecl> params) {
-		if (!meth.mods.toString().contains("static")) {
-			Local thisLocal = new JimpleLocal("thisLocal", m.getDeclaringClass().getType());
-			Unit thisIdent = Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(m.getDeclaringClass().getType()));
-			locals.put("thisLocal", thisLocal);
-			units.add(thisIdent);
-		}
-		int paramcount = 0;
-		while(params.head != null) {
-			Value parameter = Jimple.v().newParameterRef(JavaUtil.getType(params.head.vartype, deps, thisMethod.getDeclaringClass()), paramcount++);
-			Local paramLocal = new JimpleLocal(params.head.name.toString(), JavaUtil.getType(params.head.vartype, deps, thisMethod.getDeclaringClass()));
-			Unit assign = Jimple.v().newIdentityStmt(paramLocal, parameter);
-			locals.put(paramLocal.getName(), paramLocal);
-			units.add(assign);
-			params = params.tail;
-			
-			if (thisMethod.getDeclaringClass().hasOuterClass() && paramLocal.getType().equals(RefType.v(thisMethod.getDeclaringClass().getOuterClass()))) {
-				Value lhs=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), thisMethod.getDeclaringClass().getFieldByName("this$0").makeRef());
-				Unit assignOuterClass=Jimple.v().newAssignStmt(lhs, paramLocal);
-				units.add(assignOuterClass);
-			}
-		}
-		if (m.getName().equals("<init>")) {
-			ArrayList<Type> parameterTypes=new ArrayList<>();
-			SootMethod method = thisMethod.getDeclaringClass().getSuperclass().getMethod("<init>", parameterTypes);
-			Value invoke = Jimple.v().newSpecialInvokeExpr(locals.get("thisLocal"), method.makeRef());
-			Unit specialinvoke = Jimple.v().newInvokeStmt(invoke);
-			units.add(specialinvoke);
-		}
-			
-	}
-	
-	/**
-	 * Checks if there exists a constructor and if not, generates one in Jimple with a this-variable
-	 * @param m		the constructor as soot-method
-	 */
-	private void getThisVar(SootMethod m) {
-		Local thisLocal = new JimpleLocal("thisLocal", m.getDeclaringClass().getType());
-		Unit thisIdent = Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(m.getDeclaringClass().getType()));
-		locals.put("thisLocal", thisLocal);
-		units.add(thisIdent);
-		if (thisMethod.getDeclaringClass().isInnerClass()) {
-			SootClass outerClass=thisMethod.getDeclaringClass().getOuterClass();
-			Value parameter=Jimple.v().newParameterRef(RefType.v(outerClass), 0);
-			Local paramLocal = new JimpleLocal("outerLocal", RefType.v(outerClass));
-			locals.put(paramLocal.getName(), paramLocal);
-			Unit assign = Jimple.v().newIdentityStmt(paramLocal, parameter);
-			units.add(assign);
-			Value lhs=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), thisMethod.getDeclaringClass().getFieldByName("this$0").makeRef());
-			Unit assignOuterClass=Jimple.v().newAssignStmt(lhs, paramLocal);
-			units.add(assignOuterClass);
-		}
-		if (m.getName().equals("<init>")) {
-			ArrayList<Type> parameterTypes=new ArrayList<>();
-			SootMethod method = thisMethod.getDeclaringClass().getSuperclass().getMethod("<init>", parameterTypes);
-			Value invoke = Jimple.v().newSpecialInvokeExpr(thisLocal, method.makeRef());
-			Unit specialinvoke = Jimple.v().newInvokeStmt(invoke);
-			units.add(specialinvoke);
-		}
-		
-	}
-	
-	/**
-	 * Makes sure, that every field that gets its value outside of the methods, gets it in every Jimple-constructor.
-	 */
-	private void getFields() {
-		while (!fieldlist.isEmpty()) {
-			JCTree node = fieldlist.get(0);
-			SootField field = thisMethod.getDeclaringClass().getFieldByName(((JCVariableDecl)node).name.toString());
-			Value loc;
-			if (field.isStatic()) 
-				loc = Jimple.v().newStaticFieldRef(field.makeRef());
-			else
-				loc = Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
-			Value rhs = checkBinary(getValue(((JCVariableDecl)node).init));
-			if (!queue.isEmpty()) {
-				newclasslocal = (Local)rhs;
-				JCTree tree = queue.get(0);
-				queue.remove(tree);
-				getHead(tree);
-			}
-			Unit assign = Jimple.v().newAssignStmt(loc, rhs);
-			units.add(assign);
-			fieldlist.remove(node);
-		}
-	}
+
 	
 	/**
 	 * If the node is a block, transforms it into single statements or else returns its head
@@ -1268,53 +1337,7 @@ public class JavaMethodSource implements MethodSource {
 			return getHead(node);
 	}
 	
-	/**
-	 * Creates a method reference in Jimple to an existing method
-	 * @param node				node containing a method invocation
-	 * @param parameterTypes	list of parameter types
-	 * @return					reference to the corresponding method in Jimple
-	 */
-	private SootMethodRef getMethodRef(JCTree node, List<Type> parameterTypes) {
-		SootMethod method=null;
-		if (node instanceof JCIdent)
-			return searchMethod(thisMethod.getDeclaringClass(), node.toString(), parameterTypes).makeRef();
-		else { 
-			if (((JCFieldAccess)node).selected instanceof JCIdent) {
-				if (JavaUtil.isPackageName((JCIdent)((JCFieldAccess)node).selected,deps)) {
-					String packagename = JavaUtil.getPackage((JCIdent)((JCFieldAccess)node).selected, deps, thisMethod.getDeclaringClass());
-					SootClass klass = Scene.v().getSootClass(packagename);
-					method = searchMethod(klass,((JCFieldAccess)node).name.toString(),parameterTypes);
-				}
-				else {
-					String packagename = locals.get((((JCFieldAccess)node).selected).toString()).getType().toString();
-					SootClass klass = Scene.v().getSootClass(packagename);
-					method = searchMethod(klass, ((JCFieldAccess)node).name.toString(), parameterTypes);
-				}
-			}
-			else if (((JCFieldAccess)node).selected instanceof JCMethodInvocation){
-				Value access = getMethodInvocation((JCMethodInvocation)((JCFieldAccess)node).selected);
-				SootClass klass;
-				if (access.getType() instanceof PrimType || access.getType() instanceof ArrayType)
-					klass=Scene.v().getSootClass("java.lang.Object");
-				else
-					klass = Scene.v().getSootClass(access.getType().toString());
-				method = searchMethod(klass,((JCFieldAccess)node).name.toString(), parameterTypes);
-			}
-			else if (((JCFieldAccess)node).selected instanceof JCFieldAccess){		//FieldAccess
-				Local loc = (Local)checkBinary(getFieldAccess((JCFieldAccess)((JCFieldAccess)node).selected));
-				SootClass klass;
-				if (loc.getType() instanceof PrimType || loc.getType() instanceof ArrayType)
-					klass=Scene.v().getSootClass("java.lang.Object");
-				else
-					klass = Scene.v().getSootClass(loc.getType().toString());
-				method = searchMethod(klass,((JCFieldAccess)node).name.toString(), parameterTypes);
-			}				
-		}
-		if (method!=null)
-			return method.makeRef();
-		else
-			throw new AssertionError("Can't find method " + node.toString() + " " + parameterTypes.toString());
-	}
+
 	
 	/**
 	 * Searches for a matching method, considers all superclasses and interfaces
@@ -1563,22 +1586,6 @@ public class JavaMethodSource implements MethodSource {
 		if (node instanceof JCExpressionStatement)
 			return ((JCExpressionStatement)node).expr;
 		return node;
-	}
-	
-	/**
-	 * Searches for the last added local with a reference to the given class
-	 * @param ref	name of the class
-	 * @return		last local with reference to class
-	 */
-	private Local getLastRefLocal(String ref) {					//TODO unsortiert
-		Iterator<Local> iter = locals.values().iterator();
-		Local ret = null;
-		while (iter.hasNext()) {
-			Local next = iter.next();
-			if (next.getType().toString().equals(ref))
-				ret = next;
-		}
-		return ret;
 	}
 	
 	 /**
