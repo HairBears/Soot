@@ -13,7 +13,9 @@ import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.JCTree.*;
 import com.sun.tools.javac.util.Context;
 
+import soot.ArrayType;
 import soot.ClassSource;
+import soot.IntType;
 import soot.Modifier;
 import soot.RefType;
 import soot.Scene;
@@ -73,6 +75,7 @@ public class JavaClassSource extends ClassSource {
 		deps.typesToSignature.add(RefType.v("java.io.Serializable"));
 		deps.typesToSignature.add(RefType.v("java.lang.AssertionError"));
 		deps.typesToSignature.add(RefType.v("java.lang.Enum"));
+		deps.typesToSignature.add(RefType.v("java.lang.Class"));
 		JCClassDecl classsig=(JCClassDecl) classDecl.head;
 		if (classsig.extending!=null)
 			sc.setSuperclass(Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)classsig.extending, deps, sc)));
@@ -176,6 +179,12 @@ public class JavaClassSource extends ClassSource {
 				int fieldmods=Modifier.FINAL;
 				SootField field=new SootField(fieldname, fieldtype, fieldmods);
 				innerClass.addField(field);
+			} else {
+				String fieldname="ENUM$VALUES";
+				Type fieldtype=ArrayType.v(RefType.v(innerClass), 1);
+				int fieldmods=Modifier.FINAL | Modifier.STATIC | Modifier.PRIVATE;
+				SootField field=new SootField(fieldname, fieldtype, fieldmods);
+				innerClass.addField(field);
 			}
 			
 			
@@ -188,13 +197,32 @@ public class JavaClassSource extends ClassSource {
 				list = list.tail;
 			}
 			List<Type> parameterTypes = new ArrayList<>();
-			parameterTypes.add(RefType.v(sc));
+			if (Modifier.isEnum(innerClass.getModifiers())) {
+				parameterTypes.add(RefType.v("java.lang.String"));
+				parameterTypes.add(IntType.v());
+			}
+			else
+				parameterTypes.add(RefType.v(sc));
 			if (!innerClass.declaresMethod("<init>", parameterTypes)) {
 				String methodname="<init>";
 				
 				Type returntype = VoidType.v();
 				innerClass.addMethod(new SootMethod(methodname, parameterTypes, returntype, Modifier.PUBLIC));
 				innerClass.getMethodByName(methodname).setSource(new JavaMethodSource(null, deps, newfieldlist));
+			}
+			if (Modifier.isEnum(innerClass.getModifiers())) {
+				List<Type> paraList=new ArrayList<>();
+				
+				innerClass.addMethod(new SootMethod("<clinit>", paraList, VoidType.v(), Modifier.STATIC));
+				innerClass.getMethodByName("<clinit>").setSource(new JavaMethodSource(null, deps, newfieldlist));
+				
+				innerClass.addMethod(new SootMethod("values", paraList, ArrayType.v(RefType.v(innerClass), 1), Modifier.PUBLIC|Modifier.STATIC));
+				innerClass.getMethodByName("values").setSource(new JavaMethodSource(null, deps, newfieldlist));
+				
+				List<Type> paraList2=new ArrayList<>();
+				paraList2.add(RefType.v("java.lang.String"));
+				innerClass.addMethod(new SootMethod("valueOf", paraList2, RefType.v(innerClass), Modifier.PUBLIC|Modifier.STATIC));
+				innerClass.getMethodByName("valueOf").setSource(new JavaMethodSource(null, deps, newfieldlist));
 			}
 			
 		}

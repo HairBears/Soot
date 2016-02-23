@@ -22,5 +22,6 @@
 	<classpathentry kind="lib" path="libs/jboss-common-core-2.5.0.Final.jar"/>
 	<classpathentry kind="lib" path="libs/dexlib2-2.1.0-dev.jar"/>
 	<classpathentry kind="lib" path="libs/util-2.1.0-dev.jar"/>
+	<classpathentry kind="lib" path="libs/tools.jar"/>
 	<classpathentry kind="output" path="classes"/>
 </classpath>

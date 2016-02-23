@@ -73,6 +73,8 @@ public class JavaUtil {
 	 * @throws		AssertionError
 	 */
 	public static String getPackage(JCIdent node, Dependencies deps, SootClass sc) {
+		if (sc.toString().contains(node.toString()))
+			return sc.toString();
 		for (Type ref:deps.typesToSignature) {
 			String substring=ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
 			if (substring.equals(node.toString()))
@@ -93,10 +95,18 @@ public class JavaUtil {
 	 * @param deps	imports of parsed class
 	 * @return		true if its a class name, else false
 	 */
-	public static boolean isPackageName(JCIdent node, Dependencies deps) {
+	public static boolean isPackageName(JCIdent node, Dependencies deps, SootClass sc) {
+		if (sc.toString().contains(node.toString()))
+			return true;
 		for (Type ref:deps.typesToSignature) {
 			String substring=ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
 			if (substring.equals(node.toString()))
+				return true;
+		}
+		for (SootClass clazz:Scene.v().getClasses()) {
+			String classinpackage=sc.getPackageName()+node.toString();
+			String innerclass=sc.getName()+"$"+node.toString();
+			if (clazz.getName().equals(classinpackage) || clazz.getName().equals(innerclass))
 				return true;
 		}
 		return false;

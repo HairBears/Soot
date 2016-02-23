@@ -22,6 +22,7 @@ import soot.RefType;
 import soot.Scene;
 import soot.SootClass;
 import soot.SootField;
+import soot.SootFieldRef;
 import soot.SootMethod;
 import soot.SootMethodRef;
 import soot.Trap;
@@ -34,6 +35,7 @@ import soot.javaToJimple.LocalGenerator;
 import soot.jimple.ArrayRef;
 import soot.jimple.BinopExpr;
 import soot.jimple.CastExpr;
+import soot.jimple.ClassConstant;
 import soot.jimple.Constant;
 import soot.jimple.DoubleConstant;
 import soot.jimple.FieldRef;
@@ -46,6 +48,7 @@ import soot.jimple.Jimple;
 import soot.jimple.JimpleBody;
 import soot.jimple.LengthExpr;
 import soot.jimple.LongConstant;
+import soot.jimple.NewArrayExpr;
 import soot.jimple.NewExpr;
 import soot.jimple.NopStmt;
 import soot.jimple.NullConstant;
@@ -97,13 +100,24 @@ public class JavaMethodSource implements MethodSource {
 		thisMethod = m;
 		JimpleBody jb = Jimple.v().newBody(m);
 		locGen = new LocalGenerator(jb);
-		if (meth==null) {
+		if (Modifier.isEnum(m.getDeclaringClass().getModifiers())) {
+			if (m.getName().equals("<init>")) {
+				enumInit();
+			}
+			else if (m.getName().equals("<clinit>")) {
+				enumConstructor();
+			}
+			else if (m.getName().equals("values")) {
+				enumValues();
+			}
+			else if (m.getName().equals("valueOf")) {
+				enumValueOf();
+			}
+		}
+		else if (meth==null) {
 			getThisVar(m);
 			if (m.getName().equals("<init>"))
 				getFields();
-		}
-		else if (Modifier.isEnum(m.getDeclaringClass().getModifiers())) {
-			//TODO enum
 		}
 		else {
 			getParameter(m, meth.params);
@@ -121,7 +135,7 @@ public class JavaMethodSource implements MethodSource {
 				jb.getLocals().add(local);
 		}
 		jb.getUnits().addAll(units);
-		if (!(units.get(units.size()-1) instanceof ReturnStmt))
+		if (units.isEmpty() || !(units.get(units.size()-1) instanceof ReturnStmt))
 			jb.getUnits().add(Jimple.v().newReturnVoidStmt());
 		deleteNops(jb);
 		return jb;
@@ -556,7 +570,7 @@ public class JavaMethodSource implements MethodSource {
 	 */
 	private Value getFieldAccess(JCFieldAccess node) {
 		Value loc;
-		if (JavaUtil.isPackageName((JCIdent)node.selected, deps)) {
+		if (JavaUtil.isPackageName((JCIdent)node.selected, deps, thisMethod.getDeclaringClass())) {
 			SootClass clazz = Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)node.selected, deps, thisMethod.getDeclaringClass() ));
 			loc = Jimple.v().newStaticFieldRef(clazz.getFieldByName(node.name.toString()).makeRef());
 			return loc;
@@ -679,7 +693,7 @@ public class JavaMethodSource implements MethodSource {
 			return searchMethod(thisMethod.getDeclaringClass(), node.toString(), parameterTypes).makeRef();
 		else { 
 			if (((JCFieldAccess)node).selected instanceof JCIdent) {
-				if (JavaUtil.isPackageName((JCIdent)((JCFieldAccess)node).selected,deps)) {
+				if (JavaUtil.isPackageName((JCIdent)((JCFieldAccess)node).selected,deps, thisMethod.getDeclaringClass())) {
 					String packagename = JavaUtil.getPackage((JCIdent)((JCFieldAccess)node).selected, deps, thisMethod.getDeclaringClass());
 					SootClass klass = Scene.v().getSootClass(packagename);
 					method = searchMethod(klass,((JCFieldAccess)node).name.toString(),parameterTypes);
@@ -1305,7 +1319,8 @@ public class JavaMethodSource implements MethodSource {
 	 */
 	private Value checkBinary(Value val) {
 		if (val instanceof BinopExpr || val instanceof CastExpr || val instanceof InstanceOfExpr || val instanceof ArrayRef 
-				|| val instanceof InvokeExpr || val instanceof NewExpr || val instanceof FieldRef || val instanceof LengthExpr) {
+				|| val instanceof InvokeExpr || val instanceof NewExpr || val instanceof FieldRef || val instanceof LengthExpr
+				|| val instanceof NewArrayExpr) {
 			Local newLocal = locGen.generateLocal(val.getType());
 			locals.put(newLocal.getName(), newLocal);
 			Unit assign = Jimple.v().newAssignStmt(newLocal, val);
@@ -1605,5 +1620,121 @@ public class JavaMethodSource implements MethodSource {
 			return false;
 		}
 	}
+	
+	private void enumValueOf() {
+		Type type=RefType.v("java.lang.String");
+		Value parameter=Jimple.v().newParameterRef(type, 0);
+		Local loc=locGen.generateLocal(type);
+		Unit ident=Jimple.v().newIdentityStmt(loc, parameter);
+		units.add(ident);
+		List<Type> parameterTypes=new ArrayList<Type>();
+		parameterTypes.add(RefType.v("java.lang.Class"));
+		parameterTypes.add(RefType.v("java.lang.String"));
+		SootMethod method=searchMethod(Scene.v().getSootClass("java.lang.Enum"), "valueOf", parameterTypes);
+		List<Value> parameterList=new ArrayList<Value>();
+		parameterList.add(ClassConstant.v(thisMethod.getDeclaringClass().getName()));
+		parameterList.add(loc);
+		Value invoke=Jimple.v().newStaticInvokeExpr(method.makeRef(), parameterList);
+		invoke=checkBinary(invoke);
+		Value cast=Jimple.v().newCastExpr(invoke, RefType.v(thisMethod.getDeclaringClass()));
+		cast=checkBinary(cast);
+		Unit returnValue=Jimple.v().newReturnStmt(cast);
+		units.add(returnValue);
+	}
+	
+	private void enumInit() {
+		Local thisLocal = new JimpleLocal("thisLocal", thisMethod.getDeclaringClass().getType());
+		Unit thisIdent = Jimple.v().newIdentityStmt(thisLocal, Jimple.v().newThisRef(thisMethod.getDeclaringClass().getType()));
+		locals.put("thisLocal", thisLocal);
+		units.add(thisIdent);
+		Type string=RefType.v("java.lang.String");
+		Value parameter1=Jimple.v().newParameterRef(string, 0);
+		Local loc1=locGen.generateLocal(string);
+		Unit ident1=Jimple.v().newIdentityStmt(loc1, parameter1);
+		units.add(ident1);
+		Value parameter2=Jimple.v().newParameterRef(IntType.v(), 1);
+		Local loc2=locGen.generateLocal(IntType.v());
+		Unit ident2=Jimple.v().newIdentityStmt(loc2, parameter2);
+		units.add(ident2);
+		List<Type> parameterTypes=new ArrayList<>();
+		parameterTypes.add(string);
+		parameterTypes.add(IntType.v());
+		SootMethod method=searchMethod(thisMethod.getDeclaringClass().getSuperclass(), "<init>", parameterTypes);
+		List<Value> parameterList=new ArrayList<>();
+		parameterList.add(loc1);
+		parameterList.add(loc2);
+		Value specialinvoke=Jimple.v().newSpecialInvokeExpr(thisLocal, method.makeRef(), parameterList);
+		Unit invoke=Jimple.v().newInvokeStmt(specialinvoke);
+		units.add(invoke);
+	}
 
+	private void enumValues() {
+		SootFieldRef fieldref=thisMethod.getDeclaringClass().getFieldByName("ENUM$VALUES").makeRef();
+		Type type=fieldref.type();
+		Value field=Jimple.v().newStaticFieldRef(fieldref);
+		Local loc=locGen.generateLocal(type);
+		Unit assign=Jimple.v().newAssignStmt(loc, field);
+		units.add(assign);
+		Value lengthof=Jimple.v().newLengthExpr(loc);
+		lengthof=checkBinary(lengthof);
+		Value array=Jimple.v().newNewArrayExpr(RefType.v(thisMethod.getDeclaringClass()), lengthof);
+		array=checkBinary(array);
+		List<Type> parameterTypes=new ArrayList<>();
+		parameterTypes.add(RefType.v("java.lang.Object"));
+		parameterTypes.add(IntType.v());
+		parameterTypes.add(RefType.v("java.lang.Object"));
+		parameterTypes.add(IntType.v());
+		parameterTypes.add(IntType.v());
+		SootMethod method=searchMethod(Scene.v().getSootClass("java.lang.System"), "arraycopy", parameterTypes);
+		List<Value> parameterList=new ArrayList<>();
+		parameterList.add(loc);
+		parameterList.add(IntConstant.v(0));
+		parameterList.add(array);
+		parameterList.add(IntConstant.v(0));
+		parameterList.add(lengthof);
+		Value staticinvoke=Jimple.v().newStaticInvokeExpr(method.makeRef(), parameterList);
+		Unit invoke=Jimple.v().newInvokeStmt(staticinvoke);
+		units.add(invoke);
+		Unit returnvalue=Jimple.v().newReturnStmt(array);
+		units.add(returnvalue);
+	}
+	
+	private void enumConstructor() {
+		RefType type=RefType.v(thisMethod.getDeclaringClass());
+		for (int i=0; i<fieldlist.size(); i++) {
+			Local loc=locGen.generateLocal(type);
+			Value val=Jimple.v().newNewExpr(type);
+			Unit assign=Jimple.v().newAssignStmt(loc, val);
+			units.add(assign);
+			List<Value> parameterList=new ArrayList<>();
+			String name=((JCVariableDecl)fieldlist.get(i)).name.toString();
+			parameterList.add(StringConstant.v(name));
+			parameterList.add(IntConstant.v(i));
+			SootMethod method=thisMethod.getDeclaringClass().getMethodByName("<init>");
+			Value specialinvoke=Jimple.v().newSpecialInvokeExpr(loc, method.makeRef(), parameterList);
+			Unit invoke=Jimple.v().newInvokeStmt(specialinvoke);
+			units.add(invoke);
+			SootFieldRef fieldref=thisMethod.getDeclaringClass().getFieldByName(name).makeRef();
+			Value field=Jimple.v().newStaticFieldRef(fieldref);
+			Unit assign2=Jimple.v().newAssignStmt(field, loc);
+			units.add(assign2);
+		}
+		SootField fieldarray=thisMethod.getDeclaringClass().getFieldByName("ENUM$VALUES");
+		Local loc=locGen.generateLocal(fieldarray.getType());
+		Value newarray=Jimple.v().newNewArrayExpr(type, IntConstant.v(fieldlist.size()));
+		Unit assign=Jimple.v().newAssignStmt(loc, newarray);
+		units.add(assign);
+		for (int i=0; i<fieldlist.size(); i++) {
+			String name=((JCVariableDecl)fieldlist.get(i)).name.toString();
+			SootFieldRef fieldref=thisMethod.getDeclaringClass().getFieldByName(name).makeRef();
+			Value field=Jimple.v().newStaticFieldRef(fieldref);
+			Value arrayaccess=Jimple.v().newArrayRef(loc, IntConstant.v(i));
+			field=checkBinary(field);
+			Unit assign2=Jimple.v().newAssignStmt(arrayaccess, field);
+			units.add(assign2);
+		}
+		Value field=Jimple.v().newStaticFieldRef(fieldarray.makeRef());
+		Unit assign2=Jimple.v().newAssignStmt(field, loc);
+		units.add(assign2);
+	}
 }
