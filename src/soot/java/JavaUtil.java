@@ -5,6 +5,7 @@ import java.util.List;
 
 import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.JCTree.JCArrayTypeTree;
+import com.sun.tools.javac.tree.JCTree.JCBlock;
 import com.sun.tools.javac.tree.JCTree.JCClassDecl;
 import com.sun.tools.javac.tree.JCTree.JCExpression;
 import com.sun.tools.javac.tree.JCTree.JCIdent;
@@ -91,7 +92,7 @@ public class JavaUtil {
 	 * @throws		AssertionError
 	 */
 	public static String getPackage(JCIdent node, Dependencies deps, SootClass sc) {
-		if (sc.toString().contains(node.toString()))
+		if (sc.toString().contains("$") && sc.toString().substring(sc.toString().lastIndexOf('$')+1, sc.toString().length()).equals(node.toString()))
 			return sc.toString();
 		for (Type ref:deps.typesToSignature) {
 			String substring=ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
@@ -114,7 +115,7 @@ public class JavaUtil {
 	 * @return		true if its a class name, else false
 	 */
 	public static boolean isPackageName(JCIdent node, Dependencies deps, SootClass sc) {
-		if (sc.toString().contains(node.toString()))
+		if (sc.toString().equals(node.toString()))
 			return true;
 		for (Type ref:deps.typesToSignature) {
 			String substring=ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
@@ -201,7 +202,12 @@ public class JavaUtil {
 			int fieldMods = getModifiers(((JCVariableDecl) node).getModifiers());
 			SootField field = new SootField(fieldName, fieldType, fieldMods);
 			sc.addField(field);
-			if (((JCVariableDecl)node).init != null) {
+	/*		if (Modifier.isStatic(fieldMods) && !sc.declaresMethodByName("<clinit>")) {
+				List<Type> parameterTypes=new ArrayList<>();
+				sc.addMethod(new SootMethod("<clinit>", parameterTypes, VoidType.v(), Modifier.STATIC));
+				sc.getMethod("<clinit>", parameterTypes, VoidType.v()).setSource(new JavaMethodSource(null, deps, fieldList));
+			}
+	*/		if (((JCVariableDecl)node).init != null) {
 				fieldList.add(node);
 			}
 		}
@@ -268,23 +274,28 @@ public class JavaUtil {
 				
 				Type returnType = VoidType.v();
 				innerClass.addMethod(new SootMethod(methodname, parameterTypes, returnType, Modifier.PUBLIC));
-				innerClass.getMethodByName(methodname).setSource(new JavaMethodSource(null, deps, newFieldList));
+				innerClass.getMethod(methodname, parameterTypes, returnType).setSource(new JavaMethodSource(deps, newFieldList));
 			}
 			if (Modifier.isEnum(innerClass.getModifiers())) {
 				List<Type> parameterList=new ArrayList<>();
 				
 				innerClass.addMethod(new SootMethod("<clinit>", parameterList, VoidType.v(), Modifier.STATIC));
-				innerClass.getMethodByName("<clinit>").setSource(new JavaMethodSource(null, deps, newFieldList));
+				innerClass.getMethod("<clinit>", parameterList, VoidType.v()).setSource(new JavaMethodSource(deps, newFieldList));
 				
 				innerClass.addMethod(new SootMethod("values", parameterList, ArrayType.v(RefType.v(innerClass), 1), Modifier.PUBLIC|Modifier.STATIC));
-				innerClass.getMethodByName("values").setSource(new JavaMethodSource(null, deps, newFieldList));
+				innerClass.getMethod("values", parameterList, ArrayType.v(RefType.v(innerClass), 1)).setSource(new JavaMethodSource(deps, newFieldList));
 				
 				List<Type> parameterList2=new ArrayList<>();
 				parameterList2.add(RefType.v("java.lang.String"));
 				innerClass.addMethod(new SootMethod("valueOf", parameterList2, RefType.v(innerClass), Modifier.PUBLIC|Modifier.STATIC));
-				innerClass.getMethodByName("valueOf").setSource(new JavaMethodSource(null, deps, newFieldList));
+				innerClass.getMethod("valueOf", parameterList2, RefType.v(innerClass)).setSource(new JavaMethodSource(deps, newFieldList));
 			}
 			
+		}
+		if (node instanceof JCBlock) {
+			List<Type> parameterTypes=new ArrayList<>();
+			sc.addMethod(new SootMethod("<clinit>", parameterTypes, VoidType.v(), Modifier.STATIC));
+			sc.getMethod("<clinit>", parameterTypes, VoidType.v()).setSource(new JavaMethodSource(((JCBlock) node).stats, deps, fieldList));
 		}
 		
 	}

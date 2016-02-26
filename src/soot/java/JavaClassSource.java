@@ -18,7 +18,9 @@ import soot.Modifier;
 import soot.RefType;
 import soot.Scene;
 import soot.SootClass;
+import soot.SootField;
 import soot.SootMethod;
+import soot.SourceLocator;
 import soot.Type;
 import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
@@ -59,7 +61,11 @@ public class JavaClassSource extends ClassSource {
 		Dependencies deps = new Dependencies();
 		com.sun.tools.javac.util.List<JCTree> classDecl = jccu.defs;
 		while (classDecl.head instanceof JCImport) {						//Add all imports as dependencies
-			deps.typesToSignature.add(RefType.v(((JCImport)classDecl.head).qualid.toString()));
+			if (((JCFieldAccess)((JCImport)classDecl.head).qualid).name.toString().equals("*")) {
+				deps.typesToSignature.add(RefType.v(((JCFieldAccess)((JCImport)classDecl.head).qualid).selected.toString()));
+			}
+			else
+				deps.typesToSignature.add(RefType.v(((JCImport)classDecl.head).qualid.toString()));
 			classDecl=classDecl.tail;
 		}
 		deps.typesToSignature.add(RefType.v("java.lang.Object"));			//TODO suche in methoden nach noetigen imports
@@ -106,7 +112,19 @@ public class JavaClassSource extends ClassSource {
 			String methodName="<init>";
 			Type returnType = VoidType.v();
 			sc.addMethod(new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC));
-			sc.getMethodByName(methodName).setSource(new JavaMethodSource(null, deps, fieldList));
+			sc.getMethod(methodName, parameterTypes, returnType).setSource(new JavaMethodSource(deps, fieldList));
+		}
+		if (!sc.declaresMethod("<clinit>", parameterTypes)) {
+			boolean hasStaticField=false;
+			Object[] list=sc.getFields().toArray();
+			for (int i=0; i<list.length; i++)
+				hasStaticField|=((SootField)list[i]).isStatic();
+			if (hasStaticField) {
+				String methodName="<clinit>";
+				Type returnType = VoidType.v();
+				sc.addMethod(new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC));
+				sc.getMethod(methodName, parameterTypes, returnType).setSource(new JavaMethodSource(deps, fieldList));
+			}
 		}
 		return deps;
 	}
