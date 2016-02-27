@@ -19,7 +19,7 @@ public class UnitTests {
 			Main.main(new String[] {
 				"-cp", rtJar,
 				"-pp",
-				//"-debug-resolver",
+				"-debug-resolver",
 				"-f", "class",
 				"-validate",
 				"-process-dir", getPath()

@@ -11,7 +11,7 @@ import soot.java.ArithmeticTest;
 	ArithmeticTest.class,
 	StringOperationsTest.class,
 	BooleanTest.class,
-	IfTest.class
+	ConditionTest.class
 })
 public class AllTests {
 

@@ -1,4 +1,6 @@
-public class Arithmetic {
+package soot.java.target;
+
+public class Boolean {
 
 	public boolean Test() {
 		boolean a = true;

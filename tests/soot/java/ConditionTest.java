@@ -1,6 +1,6 @@
 package soot.java;
 
-public class IfTest extends AbstractTest {
+public class ConditionTest extends AbstractTest {
 
 
 
