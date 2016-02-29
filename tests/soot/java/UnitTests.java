@@ -22,6 +22,7 @@ public class UnitTests {
 				"-debug-resolver",
 				"-f", "class",
 				"-validate",
+				//"-oaat",
 				"-process-dir", getPath()
 			});
 			

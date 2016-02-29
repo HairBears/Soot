@@ -1,7 +1,7 @@
 package soot.java.target;
 
 public class Arithmetic {
-
+	
 	public boolean Test() {
 		int a = 0;
 		int b = 0;
@@ -12,7 +12,7 @@ public class Arithmetic {
 		c--;
 		c-=1;
 		c+=2;
-		return true;
+		return c==4;
 	}
 
 }
