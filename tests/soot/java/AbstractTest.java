@@ -1,6 +1,7 @@
 package soot.java;
 
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
@@ -38,14 +39,15 @@ public abstract class AbstractTest {
 		return path;
 	}
 	
-	private Class<?> prepareClass() throws ClassNotFoundException, MalformedURLException {
+	private Class<?> prepareClass() throws MalformedURLException {
 		ClassLoader c = prepareClassLoader();
 		Class<?> klass = null;
 		// load class
 		try {
 			klass = c.loadClass(this.getTarget());
 		} catch (ClassNotFoundException e) {
-			assertTrue(false);
+			fail("Could not find the class " + this.getTarget() + ". Make sure the name is correct "
+					+ "and soot was able to process the corresponding source code.");
 		}
 
 		return klass;
@@ -67,7 +69,6 @@ public abstract class AbstractTest {
 		return c;
 	}
 	
-	// TODO everything below is experimental
 	// TODO why process-dir for singleton files?
 	private void buildClass() {
 			String rtJar = System.getProperty("java.home")+File.separator+"lib"+File.separator+"rt.jar";
@@ -85,7 +86,6 @@ public abstract class AbstractTest {
 			});
 	}
 	
-	//TODO
 	private String getClassFolder() {
 		return "./tests/soot/java/target";
 	}
