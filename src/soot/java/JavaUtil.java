@@ -34,6 +34,9 @@ import soot.SootMethod;
 import soot.Type;
 import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
+import soot.tagkit.EnclosingMethodTag;
+import soot.tagkit.InnerClassTag;
+import soot.tagkit.OuterClassTag;
 
 public class JavaUtil {
 
@@ -100,7 +103,7 @@ public class JavaUtil {
 				return ref.toString();
 		}
 		for (SootClass clazz:Scene.v().getClasses()) {
-			String classInPackage=sc.getPackageName()+node.toString();
+			String classInPackage=sc.getPackageName()+"."+node.toString();
 			String innerClass=sc.getName()+"$"+node.toString();
 			if (clazz.getName().equals(classInPackage) || clazz.getName().equals(innerClass))
 				return clazz.toString();
@@ -193,8 +196,13 @@ public class JavaUtil {
 			int modifier = getModifiers((JCModifiers)method.mods);
 			if (sc.isInterface())
 				modifier |= Modifier.ABSTRACT;
-			sc.addMethod(new SootMethod(methodName, parameterTypes, returnType, modifier, throwList));
-			sc.getMethod(methodName, parameterTypes, returnType).setSource(new JavaMethodSource(method, deps, fieldList));
+			SootMethod newMethod=new SootMethod(methodName, parameterTypes, returnType, modifier, throwList);
+			sc.addMethod(newMethod);
+			newMethod.setSource(new JavaMethodSource(method, deps, fieldList));
+			if (sc.getTag("OuterClassTag") !=null && ((OuterClassTag)sc.getTag("OuterClassTag")).isAnon()) {
+				EnclosingMethodTag tag=new EnclosingMethodTag(sc.toString(), newMethod.getName(), newMethod.toString());
+				sc.addTag(tag);
+			}
 		}
 		if (node instanceof JCVariableDecl) {
 			String fieldName = ((JCVariableDecl) node).getName().toString();
@@ -202,17 +210,17 @@ public class JavaUtil {
 			int fieldMods = getModifiers(((JCVariableDecl) node).getModifiers());
 			SootField field = new SootField(fieldName, fieldType, fieldMods);
 			sc.addField(field);
-	/*		if (Modifier.isStatic(fieldMods) && !sc.declaresMethodByName("<clinit>")) {
-				List<Type> parameterTypes=new ArrayList<>();
-				sc.addMethod(new SootMethod("<clinit>", parameterTypes, VoidType.v(), Modifier.STATIC));
-				sc.getMethod("<clinit>", parameterTypes, VoidType.v()).setSource(new JavaMethodSource(null, deps, fieldList));
-			}
-	*/		if (((JCVariableDecl)node).init != null) {
+			if (((JCVariableDecl)node).init != null) {
 				fieldList.add(node);
 			}
 		}
 		if (node instanceof JCClassDecl) {
 			SootClass innerClass=new SootClass(sc.getName()+"$"+((JCClassDecl)node).name.toString());
+			innerClass.addTag(sc.getTag("SourceFileTag"));
+			OuterClassTag outerTag=new OuterClassTag(sc, sc.getName(), false);
+			innerClass.addTag(outerTag);
+			InnerClassTag innerTag=new InnerClassTag(innerClass.getName(), sc.getName(), innerClass.getShortName(), 0);
+			sc.addTag(innerTag);
 			Scene.v().addClass(innerClass);
 			Scene.v().getApplicationClasses().add(innerClass);
 			innerClass.setOuterClass(sc);

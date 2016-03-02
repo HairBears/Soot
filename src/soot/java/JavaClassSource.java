@@ -24,6 +24,7 @@ import soot.SourceLocator;
 import soot.Type;
 import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
+import soot.tagkit.SourceFileTag;
 
 public class JavaClassSource extends ClassSource {
 	
@@ -42,8 +43,9 @@ public class JavaClassSource extends ClassSource {
 	 */
 	@Override
 	public Dependencies resolve(SootClass sc) {
-		//Scanning the file and creating an abstract syntax tree
-		String text = "";
+		SourceFileTag tag=new SourceFileTag(path.getName(), path.toString());
+		sc.addTag(tag);
+		String text = "";													//Scanning the file and creating an abstract syntax tree
 		try {
 			Scanner scanner = new Scanner( path );
 			text = scanner.useDelimiter("\\A").next();
@@ -58,10 +60,15 @@ public class JavaClassSource extends ClassSource {
 		JCCompilationUnit jccu = parser.parseCompilationUnit();
 		jfm.close();
 		
+		String pathToPackage=path.getPath().substring(0, path.getPath().lastIndexOf(File.separator)+1);
+		List<String> folder=SourceLocator.v().getClassesUnder(pathToPackage);
 		Dependencies deps = new Dependencies();
+		for (int i=0; i<folder.size(); i++)
+			deps.typesToSignature.add(RefType.v(folder.get(i)));
 		com.sun.tools.javac.util.List<JCTree> classDecl = jccu.defs;
 		while (classDecl.head instanceof JCImport) {						//Add all imports as dependencies
 			if (((JCFieldAccess)((JCImport)classDecl.head).qualid).name.toString().equals("*")) {
+		//		List<String> jarFolder=SourceLocator.v().getClassesUnder(((JCFieldAccess)((JCImport)classDecl.head).qualid).selected.toString());
 				deps.typesToSignature.add(RefType.v(((JCFieldAccess)((JCImport)classDecl.head).qualid).selected.toString()));
 			}
 			else
@@ -111,8 +118,9 @@ public class JavaClassSource extends ClassSource {
 		if (!sc.declaresMethod("<init>", parameterTypes)) {
 			String methodName="<init>";
 			Type returnType = VoidType.v();
-			sc.addMethod(new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC));
-			sc.getMethod(methodName, parameterTypes, returnType).setSource(new JavaMethodSource(deps, fieldList));
+			SootMethod init=new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC);
+			sc.addMethod(init);
+			init.setSource(new JavaMethodSource(deps, fieldList));
 		}
 		if (!sc.declaresMethod("<clinit>", parameterTypes)) {
 			boolean hasStaticField=false;
@@ -122,8 +130,9 @@ public class JavaClassSource extends ClassSource {
 			if (hasStaticField) {
 				String methodName="<clinit>";
 				Type returnType = VoidType.v();
-				sc.addMethod(new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC));
-				sc.getMethod(methodName, parameterTypes, returnType).setSource(new JavaMethodSource(deps, fieldList));
+				SootMethod clInit=new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC);
+				sc.addMethod(clInit);
+				clInit.setSource(new JavaMethodSource(deps, fieldList));
 			}
 		}
 		return deps;
