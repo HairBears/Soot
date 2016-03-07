@@ -10,6 +10,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 
+import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -31,6 +32,19 @@ public abstract class AbstractTest {
 		Method m = klass.getMethod("test", new Class<?>[0]);
 		Object result = m.invoke(klass.newInstance(), new Object[0]);
 		assertTrue((boolean) result);
+	}
+	
+	@After
+	public void deleteOutput() {
+		// current directory should be ../Soot/testclasses
+		String p = ClassLoader.getSystemClassLoader().getResource(".").getPath();
+		// remove testclasses
+		p = p.substring(0, p.length()-12);
+		// add sootOutput directory
+		p = p + "sootOutput/" +getTarget() + ".class";
+		// instantiate file
+		File f = new File(p);
+		f.delete();
 	}
 	
 	private String getTarget() {

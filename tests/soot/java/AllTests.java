@@ -14,7 +14,10 @@ import soot.java.ArithmeticTest;
 	ConditionTest.class,
 	LoopTest.class,
 	ArrayTest.class,
-	RecursionTest.class
+	RecursionTest.class,
+	VisibilityTest.class,
+	UnusedTest.class,
+	TernaryTest.class
 })
 public class AllTests {
 

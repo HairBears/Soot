@@ -7,6 +7,9 @@ import soot.java.target.Condition;
 import soot.java.target.Loop;
 import soot.java.target.Recursion;
 import soot.java.target.StringOperations;
+import soot.java.target.Ternary;
+import soot.java.target.Unused;
+import soot.java.target.Visibility;
 
 public class AllTestsCheck {
 
@@ -31,6 +34,9 @@ public class AllTestsCheck {
 		Loop e = new Loop();
 		Recursion f = new Recursion();
 		StringOperations g = new StringOperations();
+		Visibility h = new Visibility();
+		Ternary i = new Ternary();
+		Unused j = new Unused();
 		
 		System.out.println(a.test());
 		System.out.println(b.test());
@@ -39,6 +45,9 @@ public class AllTestsCheck {
 		System.out.println(e.test());
 		System.out.println(f.test());
 		System.out.println(g.test());
+		System.out.println(h.test());
+		System.out.println(i.test());
+		System.out.println(j.test());
 	}
 
 
