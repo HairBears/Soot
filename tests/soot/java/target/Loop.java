@@ -2,7 +2,7 @@ package soot.java.target;
 
 public class Loop {
 	
-	public boolean Test() {
+	public boolean test() {
 		for (int i = 0; i < 10; i++) {
 			if(i == 9) {
 				break;

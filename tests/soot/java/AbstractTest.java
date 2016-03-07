@@ -28,7 +28,7 @@ public abstract class AbstractTest {
 		// load class
 		Class<?> klass = prepareClass();
 		// invoke test method
-		Method m = klass.getMethod("Test", new Class<?>[0]);
+		Method m = klass.getMethod("test", new Class<?>[0]);
 		Object result = m.invoke(klass.newInstance(), new Object[0]);
 		assertTrue((boolean) result);
 	}
@@ -69,7 +69,6 @@ public abstract class AbstractTest {
 		return c;
 	}
 	
-	// TODO why process-dir for singleton files?
 	private void buildClass() {
 			String rtJar = System.getProperty("java.home")+File.separator+"lib"+File.separator+"rt.jar";
 			G.reset();
@@ -77,7 +76,6 @@ public abstract class AbstractTest {
 				"-cp", getClassFolder()+File.pathSeparator+rtJar,
 				"-pp",
 				//"-debug-resolver",
-				"-src-prec", "java",
 				"-f", "class",
 				"-validate",
 				"-process-dir",

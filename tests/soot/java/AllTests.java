@@ -10,9 +10,11 @@ import soot.java.ArithmeticTest;
 @SuiteClasses({
 	ArithmeticTest.class,
 	StringOperationsTest.class,
-	BooleanTest.class,
+	BoolsTest.class,
 	ConditionTest.class,
-	LoopTest.class
+	LoopTest.class,
+	ArrayTest.class,
+	RecursionTest.class
 })
 public class AllTests {
 

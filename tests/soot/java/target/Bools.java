@@ -1,8 +1,8 @@
 package soot.java.target;
 
-public class Boolean {
+public class Bools {
 
-	public boolean Test() {
+	public boolean test() {
 		boolean a = true;
 		boolean b = !a;
 		boolean c = a & b;
@@ -10,7 +10,7 @@ public class Boolean {
 		boolean e = a ^ b;
 		boolean f = a && d && e;
 		boolean g = a || b || c;
-		return a;
+		return f == g;
 	}
 
 }

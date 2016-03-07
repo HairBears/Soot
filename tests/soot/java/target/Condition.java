@@ -2,7 +2,7 @@ package soot.java.target;
 
 public class Condition {
 
-	public boolean Test() {
+	public boolean test() {
 		if(true) {
 			if(false) {
 				return false;

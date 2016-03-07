@@ -2,7 +2,7 @@ package soot.java.target;
 
 public class StringOperations {
 
-	public boolean Test() {
+	public boolean test() {
 		String in;
 		in = "";
 		in = in + "test";
