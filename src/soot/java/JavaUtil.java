@@ -37,7 +37,6 @@ import soot.SootClass;
 import soot.SootField;
 import soot.SootMethod;
 import soot.SourceLocator;
-import soot.SourceLocator.FoundFile;
 import soot.Type;
 import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
@@ -56,7 +55,7 @@ public class JavaUtil {
 	 * @throws		AssertionError
 	 */
 	public static Type getType (JCTree node, Dependencies deps, SootClass sc) {
-		if (node instanceof JCPrimitiveTypeTree) {
+		if (node instanceof JCPrimitiveTypeTree) {								//Primitive types
 			if (((JCPrimitiveTypeTree)node).typetag.name().equals("INT"))
 				return IntType.v();
 			if (((JCPrimitiveTypeTree)node).typetag.name().equals("CHAR"))
@@ -76,10 +75,10 @@ public class JavaUtil {
 			if (((JCPrimitiveTypeTree)node).typetag.name().equals("VOID"))
 				return VoidType.v();
 		}
-		if (node instanceof JCArrayTypeTree) {
+		if (node instanceof JCArrayTypeTree) {									//Array type
 			int dimension=1;
 			Type type=null;
-			if (((JCArrayTypeTree)node).elemtype instanceof JCArrayTypeTree) {
+			if (((JCArrayTypeTree)node).elemtype instanceof JCArrayTypeTree) {	//Mutli-dimensional array
 				JCTree dims=((JCArrayTypeTree) node).elemtype;
 				while (dims instanceof JCArrayTypeTree) {
 					dimension++;
@@ -88,18 +87,18 @@ public class JavaUtil {
 				type=getType(dims, deps, sc);
 			}
 			else
-				type=getType(((JCArrayTypeTree)node).elemtype, deps, sc);
+				type=getType(((JCArrayTypeTree)node).elemtype, deps, sc);		//Standard array (dimension=1)
 			return ArrayType.v(type, dimension);
 		}
-		if (node instanceof JCIdent) {
+		if (node instanceof JCIdent) {											//Class
 			String packageName=getPackage((JCIdent)node, deps, sc);
 			return RefType.v(packageName);
 		}
-		if (node instanceof JCTypeApply) {
+		if (node instanceof JCTypeApply) {										//Parameterized class, e.g. List<Integer>
 			String packageName=getPackage((JCIdent)((JCTypeApply)node).clazz, deps, sc);
 			return RefType.v(packageName);
 		}
-		if (node instanceof JCFieldAccess) {
+		if (node instanceof JCFieldAccess) {									//Inner class
 			String packageName=getPackage((JCIdent)((JCFieldAccess)node).selected, deps, sc);
 			return RefType.v(packageName+"$"+((JCFieldAccess)node).name);
 		}
@@ -118,23 +117,22 @@ public class JavaUtil {
 	public static String getPackage(JCIdent node, Dependencies deps, SootClass sc) {
 		String klass;
 		if (node.toString().contains("."))
-			klass=node.toString().replace(".", "$");
+			klass=node.toString().replace(".", "$");							//If searched class is an inner class, create matching class name
 		else
 			klass=node.toString();
 		if (sc.toString().contains("$") && sc.toString().substring(sc.toString().lastIndexOf('$')+1, sc.toString().length()).equals(klass))
-			return sc.toString();
-		for (Type ref:deps.typesToSignature) {
+			return sc.toString();												//Current class is an inner class and searches for itself
+		for (Type ref:deps.typesToSignature) {									//Search in imports for a matching class
 			String substring=ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
 			if (substring.equals(klass))
 				return ref.toString();
 		}
-		for (SootClass clazz:Scene.v().getClasses()) {
-	//		String classInPackage=sc.getPackageName()+"."+node.toString();
+		for (SootClass clazz:Scene.v().getClasses()) {							//An inner class of the current class is searched for
 			String innerClass=sc.getName()+"$"+klass;
-			if (/*clazz.getName().equals(classInPackage) ||*/ clazz.getName().equals(innerClass))
+			if (clazz.getName().equals(innerClass))
 				return clazz.toString();
 		}
-		String newClass = addPackageName(klass);
+		String newClass = addPackageName(klass);								//Look in standard package for the class
 		if (newClass!=null)
 			return newClass;
 		throw new AssertionError("Unknown class " + klass);
@@ -147,32 +145,43 @@ public class JavaUtil {
 	 * @return		true if its a class name, else false
 	 */
 	public static boolean isPackageName(JCIdent node, Dependencies deps, SootClass sc) {
-		if (sc.toString().equals(node.toString()))
+		String klass;															//Method build similar to getPackage
+		if (node.toString().contains("."))
+			klass=node.toString().replace(".", "$");
+		else
+			klass=node.toString();
+		if (sc.toString().contains("$") && sc.toString().substring(sc.toString().lastIndexOf('$')+1, sc.toString().length()).equals(klass))
+			return true;
+		if (sc.toString().equals(klass))
 			return true;
 		for (Type ref:deps.typesToSignature) {
 			String substring=ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
-			if (substring.equals(node.toString()))
+			if (substring.equals(klass))
 				return true;
 		}
 		for (SootClass clazz:Scene.v().getClasses()) {
-			String classinpackage=sc.getPackageName()+node.toString();
-			String innerclass=sc.getName()+"$"+node.toString();
-			if (clazz.getName().equals(classinpackage) || clazz.getName().equals(innerclass))
+			String innerclass=sc.getName()+"$"+klass;
+			if (clazz.getName().equals(innerclass))
 				return true;
 		}
-		if (addPackageName(node.toString())!=null)
+		if (addPackageName(klass)!=null)
 			return true;
 		return false;
 	}
 	
+	/**
+	 * Returns the complete name of a standard-package-class and adds it to the basic classes if necessary
+	 * E.g. String -> java.lang.String
+	 * @param className		name of a class in a standard package
+	 * @return				name with package-name
+	 */
 	public static String addPackageName(String className) {
 		JarFile rt=null;
 		String returnString=null;
 		try {
 			rt = new JarFile(SourceLocator.v().classPath().get(2));
 			Enumeration<JarEntry> entries = rt.entries();
-			
-			while (entries.hasMoreElements()) {
+			while (entries.hasMoreElements()) {									//Check all classes in rt.jar for a matching name 
 				JarEntry entry=entries.nextElement();
 				if (entry.toString().contains(".class")) {
 					String substring = entry.toString().substring(entry.toString().lastIndexOf("/")+1, entry.toString().lastIndexOf("."));
@@ -184,7 +193,7 @@ public class JavaUtil {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-		if (returnString!=null) {
+		if (returnString!=null) {												//Add the new class to the basic classes and force its resolving
 			if (Scene.v().getSootClass(returnString).resolvingLevel()<SootClass.SIGNATURES) {
 				Scene.v().addBasicClass(returnString, SootClass.SIGNATURES);
 				Scene.v().forceResolve(returnString, SootClass.SIGNATURES);
@@ -194,9 +203,17 @@ public class JavaUtil {
 		return null;
 	}
 	
+	/**
+	 * If a new class is needed via a field access, check if this class needs to be resolved
+	 * @param className		name of the class from a field
+	 * @return				same name
+	 */
 	public static String addFieldPackageName(String className) {
-		String substring=className.substring(className.lastIndexOf('.')+1, className.length());
-		return addPackageName(substring);
+		if (Scene.v().getSootClass(className).resolvingLevel()<SootClass.SIGNATURES) {
+			Scene.v().addBasicClass(className, SootClass.SIGNATURES);
+			Scene.v().forceResolve(className, SootClass.SIGNATURES);
+		}
+		return className;
 	}
 	
 	/**
@@ -235,11 +252,11 @@ public class JavaUtil {
 	 * @param fieldList		list, in which the new fields will be added
 	 */
 	public static void getHead(JCTree node, Dependencies deps, SootClass sc, ArrayList<JCTree> fieldList) {
-		if (node instanceof JCMethodDecl) {
+		if (node instanceof JCMethodDecl) {										//Add a method to this class
 			JCMethodDecl method = (JCMethodDecl)node;
 			com.sun.tools.javac.util.List<JCExpression> throwListTree = method.thrown;
 			ArrayList<SootClass> throwList=new ArrayList<>();
-			while (throwListTree.head!=null) {
+			while (throwListTree.head!=null) {									//Add "throws"
 				String packageName=JavaUtil.getPackage((JCIdent)throwListTree.head, deps, sc);
 				SootClass thrownClass=Scene.v().getSootClass(packageName);
 				throwList.add(thrownClass);
@@ -247,57 +264,57 @@ public class JavaUtil {
 			}
 			List<Type> parameterTypes = new ArrayList<>();
 			com.sun.tools.javac.util.List<JCVariableDecl> parameterListTree = method.params;
-			while (parameterListTree.head != null) {
+			while (parameterListTree.head != null) {							//Add parameter
 				Type type = JavaUtil.getType(parameterListTree.head.vartype, deps, sc);
 				parameterTypes.add(type);
 				parameterListTree = parameterListTree.tail;
 			}
 			String methodName = method.name.toString();
 			Type returnType;
-			if (methodName.equals("<init>"))
+			if (methodName.equals("<init>"))									//Add return type
 				returnType = VoidType.v();
 			else
 				returnType = JavaUtil.getType(method.restype, deps, sc);
-			int modifier = getModifiers((JCModifiers)method.mods);
+			int modifier = getModifiers((JCModifiers)method.mods);				//Add modifier
 			if (sc.isInterface())
 				modifier |= Modifier.ABSTRACT;
 			SootMethod newMethod=new SootMethod(methodName, parameterTypes, returnType, modifier, throwList);
 			sc.addMethod(newMethod);
-			if (newMethod.isAbstract())
+			if (newMethod.isAbstract())											//Set source for method body
 				newMethod.setSource(new JavaMethodSource(deps, fieldList));
 			else
 				newMethod.setSource(new JavaMethodSource(method, deps, fieldList));
 			if (sc.getTag("OuterClassTag") !=null && ((OuterClassTag)sc.getTag("OuterClassTag")).isAnon()) {
 				EnclosingMethodTag tag=new EnclosingMethodTag(sc.toString(), newMethod.getName(), newMethod.toString());
-				sc.addTag(tag);
+				sc.addTag(tag);													//Add tag for anonymous method
 			}
 		}
-		if (node instanceof JCVariableDecl) {
+		if (node instanceof JCVariableDecl) {									//Add fields
 			String fieldName = ((JCVariableDecl) node).getName().toString();
 			Type fieldType = JavaUtil.getType(((JCVariableDecl) node).vartype, deps, sc);
 			int fieldMods = getModifiers(((JCVariableDecl) node).getModifiers());
 			SootField field = new SootField(fieldName, fieldType, fieldMods);
 			sc.addField(field);
 			if (((JCVariableDecl)node).init != null) {
-				fieldList.add(node);
+				fieldList.add(node);											//If initialized, add to list for constructor
 			}
 		}
-		if (node instanceof JCClassDecl) {
+		if (node instanceof JCClassDecl) {										//Add inner class, anonymous class, or enum class
 			SootClass innerClass=new SootClass(sc.getName()+"$"+((JCClassDecl)node).name.toString());
-			innerClass.addTag(sc.getTag("SourceFileTag"));
+			innerClass.addTag(sc.getTag("SourceFileTag"));						//Add tag for source file, inner classes and outer classes
 			OuterClassTag outerTag=new OuterClassTag(sc, sc.getName(), false);
 			innerClass.addTag(outerTag);
 			InnerClassTag innerTag=new InnerClassTag(innerClass.getName(), sc.getName(), innerClass.getShortName(), 0);
 			sc.addTag(innerTag);
 			Scene.v().addClass(innerClass);
-			Scene.v().getApplicationClasses().add(innerClass);
+			Scene.v().getApplicationClasses().add(innerClass);					//Add inner class to class list
 			innerClass.setOuterClass(sc);
-			int modifier=getModifiers(((JCClassDecl) node).mods);
+			int modifier=getModifiers(((JCClassDecl) node).mods);				//Add modifiers
 			if (node.toString().substring(0, node.toString().indexOf('{')).contains("enum")) {
 				modifier |= Modifier.ENUM | Modifier.FINAL;
 			}
 			innerClass.setModifiers(modifier);
-			if (((JCClassDecl)node).extending!=null) {
+			if (((JCClassDecl)node).extending!=null) {							//Add super class
 				String packageName=JavaUtil.getPackage((JCIdent)((JCClassDecl)node).extending, deps, sc);
 				SootClass superClass=Scene.v().getSootClass(packageName);
 				innerClass.setSuperclass(superClass);
@@ -310,7 +327,7 @@ public class JavaUtil {
 				SootClass superClass=Scene.v().getSootClass(addPackageName("Object"));
 				innerClass.setSuperclass(superClass);
 			}
-			if (((JCClassDecl)node).implementing.head!=null) {
+			if (((JCClassDecl)node).implementing.head!=null) {					//Add interfaces
 				com.sun.tools.javac.util.List<JCExpression> interfaceList = ((JCClassDecl)node).implementing;
 				while (interfaceList.head!=null) {
 					String packageName;
@@ -323,7 +340,7 @@ public class JavaUtil {
 					interfaceList=interfaceList.tail;
 				}
 			}
-			if (!Modifier.isEnum(innerClass.getModifiers())) {
+			if (!Modifier.isEnum(innerClass.getModifiers())) {					//Add needed field
 				String fieldName="this$0";
 				Type fieldType=RefType.v(sc);
 				int fieldMods=Modifier.FINAL;
@@ -338,7 +355,7 @@ public class JavaUtil {
 			}
 			com.sun.tools.javac.util.List<JCTree> classBodyList = ((JCClassDecl) node).defs;
 			ArrayList<JCTree> newFieldList = new ArrayList<JCTree>();
-			while (classBodyList.head != null) {										//Add all methods in this class
+			while (classBodyList.head != null) {								//Add all methods, inner classes, or fields in this class
 				getHead(classBodyList.head, deps, innerClass, newFieldList);
 				classBodyList = classBodyList.tail;
 			}
@@ -348,7 +365,7 @@ public class JavaUtil {
 				parameterTypes.add(IntType.v());
 			}
 			else
-				parameterTypes.add(RefType.v(sc));
+				parameterTypes.add(RefType.v(sc));								//If class has no constructor, add a standard one
 			if (!innerClass.declaresMethod("<init>", parameterTypes)) {
 				String methodname="<init>";
 				
@@ -356,7 +373,7 @@ public class JavaUtil {
 				innerClass.addMethod(new SootMethod(methodname, parameterTypes, returnType, Modifier.PUBLIC));
 				innerClass.getMethod(methodname, parameterTypes, returnType).setSource(new JavaMethodSource(deps, newFieldList));
 			}
-			if (Modifier.isEnum(innerClass.getModifiers())) {
+			if (Modifier.isEnum(innerClass.getModifiers())) {					//Add necessary methods for an enum class
 				List<Type> parameterList=new ArrayList<>();
 				
 				innerClass.addMethod(new SootMethod("<clinit>", parameterList, VoidType.v(), Modifier.STATIC));
@@ -370,14 +387,25 @@ public class JavaUtil {
 				innerClass.addMethod(new SootMethod("valueOf", parameterList2, RefType.v(innerClass), Modifier.PUBLIC|Modifier.STATIC));
 				innerClass.getMethod("valueOf", parameterList2, RefType.v(innerClass)).setSource(new JavaMethodSource(deps, newFieldList));
 			}
-			
+			if (!sc.declaresMethod("<clinit>", parameterTypes)) {				//if class has static fields, add a clinit-constructor
+				boolean hasStaticField=false;
+				Object[] list=sc.getFields().toArray();
+				for (int i=0; i<list.length; i++)
+					hasStaticField|=((SootField)list[i]).isStatic();
+				if (hasStaticField) {
+					String methodName="<clinit>";
+					Type returnType = VoidType.v();
+					SootMethod clInit=new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC);
+					sc.addMethod(clInit);
+					clInit.setSource(new JavaMethodSource(deps, fieldList));
+				}
+			}
 		}
-		if (node instanceof JCBlock) {
+		if (node instanceof JCBlock) {											//Add a static block
 			List<Type> parameterTypes=new ArrayList<>();
 			sc.addMethod(new SootMethod("<clinit>", parameterTypes, VoidType.v(), Modifier.STATIC));
 			sc.getMethod("<clinit>", parameterTypes, VoidType.v()).setSource(new JavaMethodSource(((JCBlock) node).stats, deps, fieldList));
 		}
-		
 	}
 	
 	/**
@@ -388,7 +416,6 @@ public class JavaUtil {
 	public static int getModifiers(JCModifiers node) {
 		int modSum = 0;
 		String modString = node.toString();
-		
 		if (modString.contains("abstract"))
 			modSum |= Modifier.ABSTRACT;
 		if (modString.contains("final"))
@@ -417,7 +444,6 @@ public class JavaUtil {
 			modSum |= Modifier.ANNOTATION;
 		if (modString.contains("enum"))
 			modSum |= Modifier.ENUM;
-		
 		return modSum;
 	}
 

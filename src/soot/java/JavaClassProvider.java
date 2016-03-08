@@ -15,7 +15,7 @@ public class JavaClassProvider implements ClassProvider {
 		if (file != null)
 			return new JavaClassSource(cls, file.inputFile());
 		else if (SourceLocator.v().classPath().get(0).contains(clsFile))
-			return new JavaClassSource(cls,new File(SourceLocator.v().classPath().get(0)));		//For single file as input
+			return new JavaClassSource(cls, new File(SourceLocator.v().classPath().get(0)));		//For single file as input
 		else
 			return null;
 

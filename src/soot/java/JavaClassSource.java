@@ -63,23 +63,22 @@ public class JavaClassSource extends ClassSource {
 		String pathToPackage=path.getPath().substring(0, path.getPath().lastIndexOf(File.separator)+1);
 		List<String> folder=SourceLocator.v().getClassesUnder(pathToPackage);
 		Dependencies deps = new Dependencies();
-		for (int i=0; i<folder.size(); i++)
+		for (int i=0; i<folder.size(); i++)									//Add all classes in the same package as dependencies
 			deps.typesToSignature.add(RefType.v(folder.get(i)));
 		com.sun.tools.javac.util.List<JCTree> classDecl = jccu.defs;
 		while (classDecl.head instanceof JCImport) {						//Add all imports as dependencies
 			if (((JCFieldAccess)((JCImport)classDecl.head).qualid).name.toString().equals("*")) {
 				String pathToStar=SourceLocator.v().classPath().get(0)+File.separator+((JCFieldAccess)((JCImport)classDecl.head).qualid).selected.toString().replace(".", File.separator);
 				List<String> folderStar=SourceLocator.v().getClassesUnder(pathToStar);
-				for (int i=0; i<folderStar.size(); i++) {
+				for (int i=0; i<folderStar.size(); i++)
 					deps.typesToSignature.add(RefType.v(folderStar.get(i)));
-				}
 			}
 			else
 				deps.typesToSignature.add(RefType.v(((JCImport)classDecl.head).qualid.toString()));
 			classDecl=classDecl.tail;
 		}
 		
-		JCClassDecl classSig=(JCClassDecl) classDecl.head;
+		JCClassDecl classSig=(JCClassDecl) classDecl.head;					//Add super class
 		if (classSig.extending!=null){
 			String packageName=JavaUtil.getPackage((JCIdent)classSig.extending, deps, sc);
 			SootClass superClass=Scene.v().getSootClass(packageName);
@@ -89,7 +88,7 @@ public class JavaClassSource extends ClassSource {
 			SootClass superClass=Scene.v().getSootClass(JavaUtil.addPackageName("Object"));
 			sc.setSuperclass(superClass);
 		}
-		if (classSig.implementing.head!=null) {
+		if (classSig.implementing.head!=null) {								//Add interfaces
 			com.sun.tools.javac.util.List<JCExpression> interfaceList = classSig.implementing;
 			while (interfaceList.head!=null) {
 				String packageName;
@@ -102,24 +101,23 @@ public class JavaClassSource extends ClassSource {
 				interfaceList=interfaceList.tail;
 			}
 		}
-		int modifier=JavaUtil.getModifiers(classSig.mods);
+		int modifier=JavaUtil.getModifiers(classSig.mods);					//Add modifier
 		sc.setModifiers(modifier);
 		com.sun.tools.javac.util.List<JCTree> classBodyList = ((JCClassDecl) classDecl.head).defs;
 		ArrayList<JCTree> fieldList = new ArrayList<JCTree>();
-		while (classBodyList.head != null) {								//Add all methods in this class
+		while (classBodyList.head != null) {								//Add all methods, fields, or inner classes in this class
 			JavaUtil.getHead(classBodyList.head, deps, sc, fieldList);
-			
 			classBodyList = classBodyList.tail;
 		}
 		List<Type> parameterTypes = new ArrayList<>();
-		if (!sc.declaresMethod("<init>", parameterTypes)) {
+		if (!sc.declaresMethod("<init>", parameterTypes)) {					//If this method has no constructor, add a standard one
 			String methodName="<init>";
 			Type returnType = VoidType.v();
 			SootMethod init=new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC);
 			sc.addMethod(init);
 			init.setSource(new JavaMethodSource(deps, fieldList));
 		}
-		if (!sc.declaresMethod("<clinit>", parameterTypes)) {
+		if (!sc.declaresMethod("<clinit>", parameterTypes)) {				//if class has static fields, add a clinit-constructor
 			boolean hasStaticField=false;
 			Object[] list=sc.getFields().toArray();
 			for (int i=0; i<list.length; i++)
