@@ -1,13 +1,18 @@
 package soot.java;
 
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.JCTree.JCArrayTypeTree;
 import com.sun.tools.javac.tree.JCTree.JCBlock;
 import com.sun.tools.javac.tree.JCTree.JCClassDecl;
 import com.sun.tools.javac.tree.JCTree.JCExpression;
+import com.sun.tools.javac.tree.JCTree.JCFieldAccess;
 import com.sun.tools.javac.tree.JCTree.JCIdent;
 import com.sun.tools.javac.tree.JCTree.JCMethodDecl;
 import com.sun.tools.javac.tree.JCTree.JCModifiers;
@@ -31,6 +36,8 @@ import soot.ShortType;
 import soot.SootClass;
 import soot.SootField;
 import soot.SootMethod;
+import soot.SourceLocator;
+import soot.SourceLocator.FoundFile;
 import soot.Type;
 import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
@@ -70,9 +77,19 @@ public class JavaUtil {
 				return VoidType.v();
 		}
 		if (node instanceof JCArrayTypeTree) {
-			Type type=getType(((JCArrayTypeTree)node).elemtype, deps, sc);
-			int size=node.toString().replace(((JCArrayTypeTree)node).elemtype.toString(), "").length()/2;
-			return ArrayType.v(type, size);
+			int dimension=1;
+			Type type=null;
+			if (((JCArrayTypeTree)node).elemtype instanceof JCArrayTypeTree) {
+				JCTree dims=((JCArrayTypeTree) node).elemtype;
+				while (dims instanceof JCArrayTypeTree) {
+					dimension++;
+					dims=((JCArrayTypeTree) dims).elemtype;
+				}
+				type=getType(dims, deps, sc);
+			}
+			else
+				type=getType(((JCArrayTypeTree)node).elemtype, deps, sc);
+			return ArrayType.v(type, dimension);
 		}
 		if (node instanceof JCIdent) {
 			String packageName=getPackage((JCIdent)node, deps, sc);
@@ -81,6 +98,10 @@ public class JavaUtil {
 		if (node instanceof JCTypeApply) {
 			String packageName=getPackage((JCIdent)((JCTypeApply)node).clazz, deps, sc);
 			return RefType.v(packageName);
+		}
+		if (node instanceof JCFieldAccess) {
+			String packageName=getPackage((JCIdent)((JCFieldAccess)node).selected, deps, sc);
+			return RefType.v(packageName+"$"+((JCFieldAccess)node).name);
 		}
 		else
 			throw new AssertionError("Unknown type " + node.toString());
@@ -95,20 +116,28 @@ public class JavaUtil {
 	 * @throws		AssertionError
 	 */
 	public static String getPackage(JCIdent node, Dependencies deps, SootClass sc) {
-		if (sc.toString().contains("$") && sc.toString().substring(sc.toString().lastIndexOf('$')+1, sc.toString().length()).equals(node.toString()))
+		String klass;
+		if (node.toString().contains("."))
+			klass=node.toString().replace(".", "$");
+		else
+			klass=node.toString();
+		if (sc.toString().contains("$") && sc.toString().substring(sc.toString().lastIndexOf('$')+1, sc.toString().length()).equals(klass))
 			return sc.toString();
 		for (Type ref:deps.typesToSignature) {
 			String substring=ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
-			if (substring.equals(node.toString()))
+			if (substring.equals(klass))
 				return ref.toString();
 		}
 		for (SootClass clazz:Scene.v().getClasses()) {
-			String classInPackage=sc.getPackageName()+"."+node.toString();
-			String innerClass=sc.getName()+"$"+node.toString();
-			if (clazz.getName().equals(classInPackage) || clazz.getName().equals(innerClass))
+	//		String classInPackage=sc.getPackageName()+"."+node.toString();
+			String innerClass=sc.getName()+"$"+klass;
+			if (/*clazz.getName().equals(classInPackage) ||*/ clazz.getName().equals(innerClass))
 				return clazz.toString();
 		}
-		throw new AssertionError("Unknown class " + node.toString());
+		String newClass = addPackageName(klass);
+		if (newClass!=null)
+			return newClass;
+		throw new AssertionError("Unknown class " + klass);
 	}
 
 	/**
@@ -131,7 +160,43 @@ public class JavaUtil {
 			if (clazz.getName().equals(classinpackage) || clazz.getName().equals(innerclass))
 				return true;
 		}
+		if (addPackageName(node.toString())!=null)
+			return true;
 		return false;
+	}
+	
+	public static String addPackageName(String className) {
+		JarFile rt=null;
+		String returnString=null;
+		try {
+			rt = new JarFile(SourceLocator.v().classPath().get(2));
+			Enumeration<JarEntry> entries = rt.entries();
+			
+			while (entries.hasMoreElements()) {
+				JarEntry entry=entries.nextElement();
+				if (entry.toString().contains(".class")) {
+					String substring = entry.toString().substring(entry.toString().lastIndexOf("/")+1, entry.toString().lastIndexOf("."));
+					if (substring.equals(className))
+						returnString = entry.toString().substring(0, entry.toString().lastIndexOf(".")).replace('/', '.');
+				}
+			}
+			rt.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		if (returnString!=null) {
+			if (Scene.v().getSootClass(returnString).resolvingLevel()<SootClass.SIGNATURES) {
+				Scene.v().addBasicClass(returnString, SootClass.SIGNATURES);
+				Scene.v().forceResolve(returnString, SootClass.SIGNATURES);
+			}
+			return returnString;
+		}
+		return null;
+	}
+	
+	public static String addFieldPackageName(String className) {
+		String substring=className.substring(className.lastIndexOf('.')+1, className.length());
+		return addPackageName(substring);
 	}
 	
 	/**
@@ -198,7 +263,10 @@ public class JavaUtil {
 				modifier |= Modifier.ABSTRACT;
 			SootMethod newMethod=new SootMethod(methodName, parameterTypes, returnType, modifier, throwList);
 			sc.addMethod(newMethod);
-			newMethod.setSource(new JavaMethodSource(method, deps, fieldList));
+			if (newMethod.isAbstract())
+				newMethod.setSource(new JavaMethodSource(deps, fieldList));
+			else
+				newMethod.setSource(new JavaMethodSource(method, deps, fieldList));
 			if (sc.getTag("OuterClassTag") !=null && ((OuterClassTag)sc.getTag("OuterClassTag")).isAnon()) {
 				EnclosingMethodTag tag=new EnclosingMethodTag(sc.toString(), newMethod.getName(), newMethod.toString());
 				sc.addTag(tag);
@@ -235,17 +303,21 @@ public class JavaUtil {
 				innerClass.setSuperclass(superClass);
 			}
 			else if (Modifier.isEnum(innerClass.getModifiers())) {
-				SootClass superClass=Scene.v().getSootClass("java.lang.Enum");
+				SootClass superClass=Scene.v().getSootClass(addPackageName("Enum"));
 				innerClass.setSuperclass(superClass);
 			}
 			else {
-				SootClass superClass=Scene.v().getSootClass("java.lang.Object");
+				SootClass superClass=Scene.v().getSootClass(addPackageName("Object"));
 				innerClass.setSuperclass(superClass);
 			}
 			if (((JCClassDecl)node).implementing.head!=null) {
 				com.sun.tools.javac.util.List<JCExpression> interfaceList = ((JCClassDecl)node).implementing;
 				while (interfaceList.head!=null) {
-					String packageName=JavaUtil.getPackage((JCIdent)interfaceList.head, deps, sc);
+					String packageName;
+					if (interfaceList.head instanceof JCTypeApply) 
+						packageName=JavaUtil.getPackage((JCIdent)((JCTypeApply)interfaceList.head).clazz, deps, sc);
+					else
+						packageName=JavaUtil.getPackage((JCIdent)interfaceList.head, deps, sc);
 					SootClass interfaceClass=Scene.v().getSootClass(packageName);
 					innerClass.addInterface(interfaceClass);
 					interfaceList=interfaceList.tail;
@@ -272,7 +344,7 @@ public class JavaUtil {
 			}
 			List<Type> parameterTypes = new ArrayList<>();
 			if (Modifier.isEnum(innerClass.getModifiers())) {
-				parameterTypes.add(RefType.v("java.lang.String"));
+				parameterTypes.add(RefType.v(addPackageName("String")));
 				parameterTypes.add(IntType.v());
 			}
 			else
@@ -294,7 +366,7 @@ public class JavaUtil {
 				innerClass.getMethod("values", parameterList, ArrayType.v(RefType.v(innerClass), 1)).setSource(new JavaMethodSource(deps, newFieldList));
 				
 				List<Type> parameterList2=new ArrayList<>();
-				parameterList2.add(RefType.v("java.lang.String"));
+				parameterList2.add(RefType.v(addPackageName("String")));
 				innerClass.addMethod(new SootMethod("valueOf", parameterList2, RefType.v(innerClass), Modifier.PUBLIC|Modifier.STATIC));
 				innerClass.getMethod("valueOf", parameterList2, RefType.v(innerClass)).setSource(new JavaMethodSource(deps, newFieldList));
 			}

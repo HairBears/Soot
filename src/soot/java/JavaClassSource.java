@@ -68,24 +68,17 @@ public class JavaClassSource extends ClassSource {
 		com.sun.tools.javac.util.List<JCTree> classDecl = jccu.defs;
 		while (classDecl.head instanceof JCImport) {						//Add all imports as dependencies
 			if (((JCFieldAccess)((JCImport)classDecl.head).qualid).name.toString().equals("*")) {
-		//		List<String> jarFolder=SourceLocator.v().getClassesUnder(((JCFieldAccess)((JCImport)classDecl.head).qualid).selected.toString());
-				deps.typesToSignature.add(RefType.v(((JCFieldAccess)((JCImport)classDecl.head).qualid).selected.toString()));
+				String pathToStar=SourceLocator.v().classPath().get(0)+File.separator+((JCFieldAccess)((JCImport)classDecl.head).qualid).selected.toString().replace(".", File.separator);
+				List<String> folderStar=SourceLocator.v().getClassesUnder(pathToStar);
+				for (int i=0; i<folderStar.size(); i++) {
+					deps.typesToSignature.add(RefType.v(folderStar.get(i)));
+				}
 			}
 			else
 				deps.typesToSignature.add(RefType.v(((JCImport)classDecl.head).qualid.toString()));
 			classDecl=classDecl.tail;
 		}
-		deps.typesToSignature.add(RefType.v("java.lang.Object"));			//TODO suche in methoden nach noetigen imports
-		deps.typesToSignature.add(RefType.v("java.lang.Throwable"));
-		deps.typesToSignature.add(RefType.v("java.lang.System"));
-		deps.typesToSignature.add(RefType.v("java.io.PrintStream"));
-		deps.typesToSignature.add(RefType.v("java.lang.Boolean"));
-		deps.typesToSignature.add(RefType.v("java.lang.String"));
-		deps.typesToSignature.add(RefType.v("java.lang.StringBuilder"));
-		deps.typesToSignature.add(RefType.v("java.io.Serializable"));
-		deps.typesToSignature.add(RefType.v("java.lang.AssertionError"));
-		deps.typesToSignature.add(RefType.v("java.lang.Enum"));
-		deps.typesToSignature.add(RefType.v("java.lang.Class"));
+		
 		JCClassDecl classSig=(JCClassDecl) classDecl.head;
 		if (classSig.extending!=null){
 			String packageName=JavaUtil.getPackage((JCIdent)classSig.extending, deps, sc);
@@ -93,13 +86,17 @@ public class JavaClassSource extends ClassSource {
 			sc.setSuperclass(superClass);
 		}
 		else {
-			SootClass superClass=Scene.v().getSootClass("java.lang.Object");
+			SootClass superClass=Scene.v().getSootClass(JavaUtil.addPackageName("Object"));
 			sc.setSuperclass(superClass);
 		}
 		if (classSig.implementing.head!=null) {
 			com.sun.tools.javac.util.List<JCExpression> interfaceList = classSig.implementing;
 			while (interfaceList.head!=null) {
-				String packageName=JavaUtil.getPackage((JCIdent)interfaceList.head, deps, sc);
+				String packageName;
+				if (interfaceList.head instanceof JCTypeApply)
+					packageName=JavaUtil.getPackage((JCIdent)((JCTypeApply)interfaceList.head).clazz, deps, sc);
+				else
+					packageName=JavaUtil.getPackage((JCIdent)interfaceList.head, deps, sc);
 				SootClass interfaceClass=Scene.v().getSootClass(packageName);
 				sc.addInterface(interfaceClass);
 				interfaceList=interfaceList.tail;
