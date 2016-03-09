@@ -192,7 +192,7 @@ public class JavaMethodSource implements MethodSource {
 			queue.remove(queueNode);
 			getUnit(queueNode);
 		}
-		while (nodeList.tail.head != null) {								//Process the rest of the unit list
+		while (nodeList.tail!=null && nodeList.tail.head != null) {								//Process the rest of the unit list
 			nodeList = nodeList.tail;
 			getUnit(nodeList.head);
 			if (!queue.isEmpty()) {
@@ -247,6 +247,11 @@ public class JavaMethodSource implements MethodSource {
 			return addBreak((JCBreak)node);
 		if (node instanceof JCThrow)
 			return addThrow((JCThrow) node);
+		if (node==null) {
+			Unit nop=Jimple.v().newNopStmt();
+			units.add(nop);
+			return nop;
+		}
 		else
 			throw new AssertionError("Unknown node type " + node.getClass().getSimpleName());
 	}
@@ -758,35 +763,65 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		the found local
 	 */
 	private Value getLocal(JCIdent node) {
+		SootClass thisClass = thisMethod.getDeclaringClass();
 		if (locals.containsKey(node.toString()))							//Variable in this method
 			return locals.get(node.toString());
-		else if (thisMethod.getDeclaringClass().declaresFieldByName(node.toString())) {
-				SootField field = thisMethod.getDeclaringClass().getFieldByName(node.toString());
+		if (thisClass.declaresFieldByName(node.toString())) {
+				SootField field = thisClass.getFieldByName(node.toString());
 				if (field.isStatic())										//Variable in this class as field, static or non-static
 					return Jimple.v().newStaticFieldRef(field.makeRef());
 				else
 					return Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
 			}
-		else {
-			SootClass thisClass = thisMethod.getDeclaringClass();				//Variable in outer class
-			if (thisClass.hasOuterClass()) {
+	/*	if (thisClass.hasOuterClass()) {									//Variable in outer class
 				SootClass outerClass = thisClass.getOuterClass();
-				if (outerClass.declaresFieldByName(node.toString())) {
-					SootField field = outerClass.getFieldByName(node.toString());
-					SootField outerClassField = thisClass.getFieldByName("this$0");
-					Value outerClassInstance = Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), outerClassField.makeRef());
-					Local outerClassLocal = localGenerator.generateLocal(outerClassInstance.getType());
-					Unit assign = Jimple.v().newAssignStmt(outerClassLocal, outerClassInstance);
-					units.add(assign);
-					Value fieldInstance = Jimple.v().newInstanceFieldRef(outerClassLocal, field.makeRef());
-					Local fieldLocal = localGenerator.generateLocal(fieldInstance.getType());
-					Unit assign2 = Jimple.v().newAssignStmt(fieldLocal, fieldInstance);
-					units.add(assign2);
-					return fieldLocal;
+				while (!outerClass.declaresFieldByName(node.toString()) && outerClass.hasOuterClass()) {
+					outerClass=outerClass.getOuterClass();
 				}
-			}
+				SootField field = outerClass.getFieldByName(node.toString());
+				SootField outerClassField = thisClass.getFieldByName("this$0");
+				Value outerClassInstance = Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), outerClassField.makeRef());
+				Local outerClassLocal = localGenerator.generateLocal(outerClassInstance.getType());
+				Unit assign = Jimple.v().newAssignStmt(outerClassLocal, outerClassInstance);
+				units.add(assign);
+				Value fieldInstance = Jimple.v().newInstanceFieldRef(outerClassLocal, field.makeRef());
+				Local fieldLocal = localGenerator.generateLocal(fieldInstance.getType());
+				Unit assign2 = Jimple.v().newAssignStmt(fieldLocal, fieldInstance);
+				units.add(assign2);
+				return fieldLocal;
+		}*/
+		SootField field=searchField(node, thisClass);
+		if (field!=null) {
+			if (field.isStatic()) 
+				return Jimple.v().newStaticFieldRef(field.makeRef());
+			else
+				return Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), field.makeRef());	//TODO ??
 		}
 		throw new AssertionError("Unknown local " + node.toString());
+	}
+	
+	private SootField searchField(JCIdent node, SootClass sc) {
+		if (sc.declaresFieldByName(node.toString()))
+			return sc.getFieldByName(node.toString());
+		if (sc.hasOuterClass()) {
+			SootField field=searchField(node, sc.getOuterClass());
+			if (field!=null)
+				return field;
+		}
+		if (sc.hasSuperclass()) {
+			SootField field=searchField(node, sc.getSuperclass());
+			if (field!=null)
+				return field;
+		}
+		Chain<SootClass> interfaceList = sc.getInterfaces();
+		Iterator<SootClass> it=interfaceList.iterator();
+		while (it.hasNext()) {
+			SootClass interfaceClass=it.next();
+			SootField field=searchField(node, interfaceClass);
+			if (field!=null)
+				return field;
+		}
+		return null;
 	}
 	
 	/**
@@ -894,8 +929,14 @@ public class JavaMethodSource implements MethodSource {
 		}
 		if (thisMethod.getName().equals("<init>")) {							//Call constructor of the super class
 			ArrayList<Type> parameterTypes=new ArrayList<>();
-			SootMethod method = thisMethod.getDeclaringClass().getSuperclass().getMethod("<init>", parameterTypes);
-			Value invoke = Jimple.v().newSpecialInvokeExpr(thisLocal, method.makeRef());
+			ArrayList<Value> parameter=new ArrayList<>();
+			SootClass superClass=thisMethod.getDeclaringClass().getSuperclass();
+			if (!superClass.declaresMethod("<init>", parameterTypes)) {
+				parameterTypes.add(locals.get("outerLocal").getType());
+				parameter.add(locals.get("outerLocal"));
+			}
+			SootMethod method =	searchMethod(thisMethod.getDeclaringClass().getSuperclass(), "<init>", parameterTypes);
+			Value invoke = Jimple.v().newSpecialInvokeExpr(thisLocal, method.makeRef(), parameter);
 			Unit specialInvoke = Jimple.v().newInvokeStmt(invoke);
 			units.add(specialInvoke);
 		}
@@ -1572,7 +1613,7 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		combined operation as normal assign-statement
 	 */
 	private Unit addAssignOp(JCAssignOp node) {
-		Local var = locals.get(((JCIdent)node.lhs).toString());
+		Local var = (Local) checkForExprChain(getLocal((JCIdent)node.lhs));
 		Value binary;
 		Value right = checkForExprChain(getValue(node.rhs));
 		

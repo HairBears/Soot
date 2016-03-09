@@ -77,57 +77,80 @@ public class JavaClassSource extends ClassSource {
 				deps.typesToSignature.add(RefType.v(((JCImport)classDecl.head).qualid.toString()));
 			classDecl=classDecl.tail;
 		}
-		
-		JCClassDecl classSig=(JCClassDecl) classDecl.head;					//Add super class
-		if (classSig.extending!=null){
-			String packageName=JavaUtil.getPackage((JCIdent)classSig.extending, deps, sc);
-			SootClass superClass=Scene.v().getSootClass(packageName);
-			sc.setSuperclass(superClass);
-		}
-		else {
-			SootClass superClass=Scene.v().getSootClass(JavaUtil.addPackageName("Object"));
-			sc.setSuperclass(superClass);
-		}
-		if (classSig.implementing.head!=null) {								//Add interfaces
-			com.sun.tools.javac.util.List<JCExpression> interfaceList = classSig.implementing;
-			while (interfaceList.head!=null) {
-				String packageName;
-				if (interfaceList.head instanceof JCTypeApply)
-					packageName=JavaUtil.getPackage((JCIdent)((JCTypeApply)interfaceList.head).clazz, deps, sc);
-				else
-					packageName=JavaUtil.getPackage((JCIdent)interfaceList.head, deps, sc);
-				SootClass interfaceClass=Scene.v().getSootClass(packageName);
-				sc.addInterface(interfaceClass);
-				interfaceList=interfaceList.tail;
+		ArrayList<JCClassDecl> classList=new ArrayList<>();
+		while (classDecl.head!=null) {
+			classList.add((JCClassDecl)classDecl.head);
+			if (!((JCClassDecl)classDecl.head).name.toString().equals(sc.toString())) {
+				SootClass newClass=new SootClass(((JCClassDecl)classDecl.head).name.toString());
+				Scene.v().addClass(newClass);
+				Scene.v().getApplicationClasses().add(newClass);
+				deps.typesToSignature.add(RefType.v(newClass));
+				newClass.addTag(tag);
 			}
+			classDecl=classDecl.tail;
 		}
-		int modifier=JavaUtil.getModifiers(classSig.mods);					//Add modifier
-		sc.setModifiers(modifier);
-		com.sun.tools.javac.util.List<JCTree> classBodyList = ((JCClassDecl) classDecl.head).defs;
-		ArrayList<JCTree> fieldList = new ArrayList<JCTree>();
-		while (classBodyList.head != null) {								//Add all methods, fields, or inner classes in this class
-			JavaUtil.getHead(classBodyList.head, deps, sc, fieldList);
-			classBodyList = classBodyList.tail;
-		}
-		List<Type> parameterTypes = new ArrayList<>();
-		if (!sc.declaresMethod("<init>", parameterTypes)) {					//If this method has no constructor, add a standard one
-			String methodName="<init>";
-			Type returnType = VoidType.v();
-			SootMethod init=new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC);
-			sc.addMethod(init);
-			init.setSource(new JavaMethodSource(deps, fieldList));
-		}
-		if (!sc.declaresMethod("<clinit>", parameterTypes)) {				//if class has static fields, add a clinit-constructor
-			boolean hasStaticField=false;
-			Object[] list=sc.getFields().toArray();
-			for (int i=0; i<list.length; i++)
-				hasStaticField|=((SootField)list[i]).isStatic();
-			if (hasStaticField) {
-				String methodName="<clinit>";
+		for (int i=0; i<classList.size(); i++) {
+			SootClass currentClass;
+			if (classList.get(i).name.toString().equals(sc.toString()))
+				currentClass=sc;
+			else
+				currentClass=Scene.v().getSootClass(classList.get(i).name.toString());
+			com.sun.tools.javac.util.List<JCTree> classBodyList = classList.get(i).defs;
+			ArrayList<JCTree> fieldList = new ArrayList<JCTree>();
+			
+			JCClassDecl classSig=classList.get(i);					//Add super class
+			if (classSig.extending!=null){
+				String packageName;
+				if (classSig.extending instanceof JCIdent)
+					packageName=JavaUtil.getPackage((JCIdent)classSig.extending, deps, currentClass);
+				else
+					packageName=JavaUtil.getType(classSig.extending, deps, currentClass).toString();
+				SootClass superClass=Scene.v().getSootClass(packageName);
+				currentClass.setSuperclass(superClass);
+			}
+			else {
+				SootClass superClass=Scene.v().getSootClass(JavaUtil.addPackageName("Object"));
+				currentClass.setSuperclass(superClass);
+			}
+			if (classSig.implementing.head!=null) {								//Add interfaces
+				com.sun.tools.javac.util.List<JCExpression> interfaceList = classSig.implementing;
+				while (interfaceList.head!=null) {
+					String packageName;
+					if (interfaceList.head instanceof JCIdent)
+						packageName=JavaUtil.getPackage((JCIdent)interfaceList.head, deps, currentClass);
+					else
+						packageName=JavaUtil.getType(interfaceList.head, deps, currentClass).toString();
+					SootClass interfaceClass=Scene.v().getSootClass(packageName);
+					currentClass.addInterface(interfaceClass);
+					interfaceList=interfaceList.tail;
+				}
+			}
+			int modifier=JavaUtil.getModifiers(classSig.mods);					//Add modifier
+			currentClass.setModifiers(modifier);
+			while (classBodyList.head != null) {								//Add all methods, fields, or inner classes in this class
+				JavaUtil.getHead(classBodyList.head, deps, currentClass, fieldList);
+				classBodyList = classBodyList.tail;
+			}
+			List<Type> parameterTypes = new ArrayList<>();
+			if (!currentClass.declaresMethod("<init>", parameterTypes)) {					//If this method has no constructor, add a standard one
+				String methodName="<init>";
 				Type returnType = VoidType.v();
-				SootMethod clInit=new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC);
-				sc.addMethod(clInit);
-				clInit.setSource(new JavaMethodSource(deps, fieldList));
+				SootMethod init=new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC);
+				currentClass.addMethod(init);
+				init.setSource(new JavaMethodSource(deps, fieldList));
+			}
+			if (!currentClass.declaresMethod("<clinit>", parameterTypes)) {				//if class has static fields, add a clinit-constructor
+				boolean hasStaticField=false;
+				Object[] list=currentClass.getFields().toArray();
+				for (int j=0; j<list.length; j++)
+					hasStaticField|=((SootField)list[j]).isStatic();
+				if (hasStaticField) {
+					String methodName="<clinit>";
+					Type returnType = VoidType.v();
+					SootMethod clInit=new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC);
+					currentClass.addMethod(clInit);
+					clInit.setSource(new JavaMethodSource(deps, fieldList));
+				}
 			}
 		}
 		return deps;

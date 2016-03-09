@@ -99,6 +99,9 @@ public class JavaUtil {
 			return RefType.v(packageName);
 		}
 		if (node instanceof JCFieldAccess) {									//Inner class
+			String standLib=addPackageName(node.toString());
+			if (standLib!=null)
+				return RefType.v(standLib);
 			String packageName=getPackage((JCIdent)((JCFieldAccess)node).selected, deps, sc);
 			return RefType.v(packageName+"$"+((JCFieldAccess)node).name);
 		}
@@ -126,6 +129,8 @@ public class JavaUtil {
 			String substring=ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
 			if (substring.equals(klass))
 				return ref.toString();
+			if (substring.contains("$") && substring.substring(substring.lastIndexOf('$')+1, substring.length()).equals(klass))
+				return ref.toString();
 		}
 		for (SootClass clazz:Scene.v().getClasses()) {							//An inner class of the current class is searched for
 			String innerClass=sc.getName()+"$"+klass;
@@ -135,7 +140,12 @@ public class JavaUtil {
 		String newClass = addPackageName(klass);								//Look in standard package for the class
 		if (newClass!=null)
 			return newClass;
-		throw new AssertionError("Unknown class " + klass);
+		SootClass phantomClass=new SootClass(klass);
+		phantomClass.setPhantom(true);							//TODO delete?
+		Scene.v().addClass(phantomClass);
+		Scene.v().getApplicationClasses().add(phantomClass);
+		return klass;
+	//	throw new AssertionError("Unknown class " + klass);
 	}
 
 	/**
@@ -176,6 +186,11 @@ public class JavaUtil {
 	 * @return				name with package-name
 	 */
 	public static String addPackageName(String className) {
+		String packagePart="";
+		if (className.contains(".")) {
+			packagePart=className.substring(0, className.lastIndexOf('.'));
+			className=className.substring(className.lastIndexOf('.')+1);
+		}
 		JarFile rt=null;
 		String returnString=null;
 		try {
@@ -185,8 +200,13 @@ public class JavaUtil {
 				JarEntry entry=entries.nextElement();
 				if (entry.toString().contains(".class")) {
 					String substring = entry.toString().substring(entry.toString().lastIndexOf("/")+1, entry.toString().lastIndexOf("."));
-					if (substring.equals(className))
+					if (substring.equals(className) && entry.toString().replace('/', '.').contains(packagePart))
 						returnString = entry.toString().substring(0, entry.toString().lastIndexOf(".")).replace('/', '.');
+					else if (substring.contains("$")) {
+						String subSubstring=substring.substring(substring.lastIndexOf('$')+1);
+						if (subSubstring.equals(className)&& entry.toString().replace('/', '.').contains(packagePart))
+							returnString=entry.toString().substring(0, entry.toString().lastIndexOf(".")).replace('/', '.');
+					}
 				}
 			}
 			rt.close();
@@ -309,6 +329,7 @@ public class JavaUtil {
 			Scene.v().addClass(innerClass);
 			Scene.v().getApplicationClasses().add(innerClass);					//Add inner class to class list
 			innerClass.setOuterClass(sc);
+			deps.typesToSignature.add(RefType.v(innerClass));
 			int modifier=getModifiers(((JCClassDecl) node).mods);				//Add modifiers
 			if (node.toString().substring(0, node.toString().indexOf('{')).contains("enum")) {
 				modifier |= Modifier.ENUM | Modifier.FINAL;
@@ -402,9 +423,11 @@ public class JavaUtil {
 			}
 		}
 		if (node instanceof JCBlock) {											//Add a static block
-			List<Type> parameterTypes=new ArrayList<>();
-			sc.addMethod(new SootMethod("<clinit>", parameterTypes, VoidType.v(), Modifier.STATIC));
-			sc.getMethod("<clinit>", parameterTypes, VoidType.v()).setSource(new JavaMethodSource(((JCBlock) node).stats, deps, fieldList));
+			if (!sc.declaresMethodByName("<clinit>")) {
+				List<Type> parameterTypes=new ArrayList<>();
+				sc.addMethod(new SootMethod("<clinit>", parameterTypes, VoidType.v(), Modifier.STATIC));
+				sc.getMethod("<clinit>", parameterTypes, VoidType.v()).setSource(new JavaMethodSource(((JCBlock) node).stats, deps, fieldList));
+			}
 		}
 	}
 	
