@@ -87,7 +87,7 @@ public class JavaMethodSource implements MethodSource {
 	//List that contains the end of all current loops, used to get a target for "break"
 	ArrayList<Unit> breakLoop = new ArrayList<>();
 	//Anonymous classes don't have names, so give them a number
-	int anonymousClassNumber=1;
+	int anonymousClassNumber = 1;
 	
 	com.sun.tools.javac.util.List<JCStatement> methodBodyTree;
 	
@@ -101,7 +101,7 @@ public class JavaMethodSource implements MethodSource {
 		this.methodTree = body;
 		this.deps = deps;
 		this.fieldList = fieldlist;
-		this.methodBodyTree=body.body.stats;
+		this.methodBodyTree = body.body.stats;
 	}
 	
 	/**
@@ -113,7 +113,7 @@ public class JavaMethodSource implements MethodSource {
 	public JavaMethodSource(com.sun.tools.javac.util.List<JCStatement> bodylist,  Dependencies deps, ArrayList<JCTree> fieldlist) {
 		this.deps = deps;
 		this.fieldList = fieldlist;
-		this.methodBodyTree=bodylist;
+		this.methodBodyTree = bodylist;
 	}
 	
 	/**
@@ -192,7 +192,7 @@ public class JavaMethodSource implements MethodSource {
 			queue.remove(queueNode);
 			getUnit(queueNode);
 		}
-		while (nodeList.tail!=null && nodeList.tail.head != null) {								//Process the rest of the unit list
+		while (nodeList.tail != null && nodeList.tail.head != null) {								//Process the rest of the unit list
 			nodeList = nodeList.tail;
 			getUnit(nodeList.head);
 			if (!queue.isEmpty()) {
@@ -247,8 +247,8 @@ public class JavaMethodSource implements MethodSource {
 			return addBreak((JCBreak)node);
 		if (node instanceof JCThrow)
 			return addThrow((JCThrow) node);
-		if (node==null) {
-			Unit nop=Jimple.v().newNopStmt();
+		if (node == null) {
+			Unit nop = Jimple.v().newNopStmt();
 			units.add(nop);
 			return nop;
 		}
@@ -301,7 +301,7 @@ public class JavaMethodSource implements MethodSource {
 		com.sun.tools.javac.util.List<JCExpression> parameterTree = node.args;
 		ArrayList<Value> parameterList = new ArrayList<>();
 		while (parameterTree.head != null) {												//Build the list of parameter
-			Value val=checkForExprChain(getValue(parameterTree.head));
+			Value val = checkForExprChain(getValue(parameterTree.head));
 			parameterList.add(val);
 			parameterTree = parameterTree.tail;
 		}		
@@ -321,7 +321,7 @@ public class JavaMethodSource implements MethodSource {
 				Value rhs;
 				if (!(baseType instanceof PrimType) && parameterTypes.get(i) instanceof PrimType) {
 					RefType classType = (RefType)JavaUtil.primToClass(parameterTypes.get(i));	//If Object is expected but a primitive type is given, transform it to a matching class (e.g. int->java.lang.Integer)
-					rhs=localGenerator.generateLocal(classType);
+					rhs = localGenerator.generateLocal(classType);
 					List<Type> valueOfList = new ArrayList<>();
 					valueOfList.add(parameterTypes.get(i));
 					SootMethod valueOfMethod = searchMethod(classType.getSootClass(), "valueOf", valueOfList);
@@ -344,7 +344,7 @@ public class JavaMethodSource implements MethodSource {
 			parameterTypes.add(arrayLoc.getType());
 		}
 		if (!method.parameterTypes().equals(parameterTypes)) {								//if parameterized types are used, it needs a value as a class instead of the primitive type
-			for (int i=0; i<method.parameterTypes().size(); i++) {							//e.g. ArrayList<Integer> a; a.add(3); => Integer b=Integer.valueOf(3); a.add(b);
+			for (int i=0; i<method.parameterTypes().size(); i++) {							//e.g. ArrayList<Integer> a; a.add(3); => Integer b = Integer.valueOf(3); a.add(b);
 				Type methodParameter = method.parameterTypes().get(i);						//Or if Object is expected instead of a primitive type
 				Type inputParameter = parameterTypes.get(i);
 				if (!methodParameter.equals(inputParameter) && inputParameter instanceof PrimType) {
@@ -776,7 +776,7 @@ public class JavaMethodSource implements MethodSource {
 	/*	if (thisClass.hasOuterClass()) {									//Variable in outer class
 				SootClass outerClass = thisClass.getOuterClass();
 				while (!outerClass.declaresFieldByName(node.toString()) && outerClass.hasOuterClass()) {
-					outerClass=outerClass.getOuterClass();
+					outerClass = outerClass.getOuterClass();
 				}
 				SootField field = outerClass.getFieldByName(node.toString());
 				SootField outerClassField = thisClass.getFieldByName("this$0");
@@ -790,8 +790,8 @@ public class JavaMethodSource implements MethodSource {
 				units.add(assign2);
 				return fieldLocal;
 		}*/
-		SootField field=searchField(node, thisClass);
-		if (field!=null) {
+		SootField field = searchField(node, thisClass);
+		if (field != null) {
 			if (field.isStatic()) 
 				return Jimple.v().newStaticFieldRef(field.makeRef());
 			else
@@ -804,21 +804,21 @@ public class JavaMethodSource implements MethodSource {
 		if (sc.declaresFieldByName(node.toString()))
 			return sc.getFieldByName(node.toString());
 		if (sc.hasOuterClass()) {
-			SootField field=searchField(node, sc.getOuterClass());
-			if (field!=null)
+			SootField field = searchField(node, sc.getOuterClass());
+			if (field != null)
 				return field;
 		}
 		if (sc.hasSuperclass()) {
-			SootField field=searchField(node, sc.getSuperclass());
-			if (field!=null)
+			SootField field = searchField(node, sc.getSuperclass());
+			if (field != null)
 				return field;
 		}
 		Chain<SootClass> interfaceList = sc.getInterfaces();
-		Iterator<SootClass> it=interfaceList.iterator();
+		Iterator<SootClass> it = interfaceList.iterator();
 		while (it.hasNext()) {
-			SootClass interfaceClass=it.next();
-			SootField field=searchField(node, interfaceClass);
-			if (field!=null)
+			SootClass interfaceClass = it.next();
+			SootField field = searchField(node, interfaceClass);
+			if (field != null)
 				return field;
 		}
 		return null;
@@ -850,7 +850,7 @@ public class JavaMethodSource implements MethodSource {
 			}
 			else {
 				SootClass clazz = Scene.v().getSootClass(val.getType().toString());
-				SootField field=clazz.getFieldByName(node.name.toString());
+				SootField field = clazz.getFieldByName(node.name.toString());
 				loc = Jimple.v().newInstanceFieldRef(val, field.makeRef());
 			}
 			return loc;
@@ -896,7 +896,7 @@ public class JavaMethodSource implements MethodSource {
 					Value val = checkForExprChain(getValue(superTree.head));
 					parameter.add(val);
 					parameterTypes.add(val.getType());
-					superTree=superTree.tail;
+					superTree = superTree.tail;
 				}
 			}
 			SootMethod method = thisMethod.getDeclaringClass().getSuperclass().getMethod("<init>", parameterTypes);
@@ -928,9 +928,9 @@ public class JavaMethodSource implements MethodSource {
 			units.add(assignOuterClass);
 		}
 		if (thisMethod.getName().equals("<init>")) {							//Call constructor of the super class
-			ArrayList<Type> parameterTypes=new ArrayList<>();
-			ArrayList<Value> parameter=new ArrayList<>();
-			SootClass superClass=thisMethod.getDeclaringClass().getSuperclass();
+			ArrayList<Type> parameterTypes = new ArrayList<>();
+			ArrayList<Value> parameter = new ArrayList<>();
+			SootClass superClass = thisMethod.getDeclaringClass().getSuperclass();
 			if (!superClass.declaresMethod("<init>", parameterTypes)) {
 				parameterTypes.add(locals.get("outerLocal").getType());
 				parameter.add(locals.get("outerLocal"));
@@ -1008,7 +1008,7 @@ public class JavaMethodSource implements MethodSource {
 		if (node instanceof JCIdent)
 			return searchMethod(thisMethod.getDeclaringClass(), node.toString(), parameterTypes).makeRef();		//Method in this class
 		else { 
-			JCFieldAccess fieldAccessTree=(JCFieldAccess) node;
+			JCFieldAccess fieldAccessTree = (JCFieldAccess) node;
 			if (fieldAccessTree.selected instanceof JCIdent) {													
 				if (JavaUtil.isPackageName((JCIdent)fieldAccessTree.selected,deps, thisMethod.getDeclaringClass())) {	//Method is static and in an other class
 					String packageName = JavaUtil.getPackage((JCIdent)fieldAccessTree.selected, deps, thisMethod.getDeclaringClass());
@@ -1288,7 +1288,7 @@ public class JavaMethodSource implements MethodSource {
 		com.sun.tools.javac.util.List<JCCatch> catchList = node.catchers;
 		while (catchList.head != null) {															//Create catcher
 			Unit catchUnit = addCatch((JCCatch)catchList.head);
-			String packageName=JavaUtil.getPackage((JCIdent)catchList.head.param.vartype, deps, thisMethod.getDeclaringClass());
+			String packageName = JavaUtil.getPackage((JCIdent)catchList.head.param.vartype, deps, thisMethod.getDeclaringClass());
 			SootClass throwable = Scene.v().getSootClass(packageName);
 			Trap trap = Jimple.v().newTrap(throwable, tryUnit, tryGoto, catchUnit);
 			traps.add(trap);
@@ -1302,14 +1302,14 @@ public class JavaMethodSource implements MethodSource {
 			units.add(finallygoto);
 			catchList = node.catchers;
 			while (catchList.head != null) {														//Catcher for finally block
-				Type type=JavaUtil.getType(catchList.head.param.vartype, deps, thisMethod.getDeclaringClass());
+				Type type = JavaUtil.getType(catchList.head.param.vartype, deps, thisMethod.getDeclaringClass());
 				Value var = localGenerator.generateLocal(type);
 				Unit catchUnit = Jimple.v().newIdentityStmt(var, Jimple.v().newCaughtExceptionRef());
 				units.add(catchUnit);
 				processBlock(node.finalizer);
 				Unit throwStmt = Jimple.v().newThrowStmt(var);
 				units.add(throwStmt);
-				String packageName=JavaUtil.getPackage((JCIdent)catchList.head.param.vartype, deps, thisMethod.getDeclaringClass());
+				String packageName = JavaUtil.getPackage((JCIdent)catchList.head.param.vartype, deps, thisMethod.getDeclaringClass());
 				SootClass throwable = Scene.v().getSootClass(packageName);
 				Trap trap = Jimple.v().newTrap(throwable, tryUnit, finallygoto, catchUnit);
 				traps.add(trap);
@@ -1330,9 +1330,9 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		assign-statement of the exception
 	 */
 	private Unit addCatch(JCCatch node) {
-		Type type=JavaUtil.getType(node.param.vartype, deps, thisMethod.getDeclaringClass());
+		Type type = JavaUtil.getType(node.param.vartype, deps, thisMethod.getDeclaringClass());
 	//	Value var = localGenerator.generateLocal(type);													//TODO no param-var?
-		Local var=new JimpleLocal(node.param.name.toString(), type);
+		Local var = new JimpleLocal(node.param.name.toString(), type);
 		locals.put(var.toString(), var);
 		Unit assign = Jimple.v().newIdentityStmt(var, Jimple.v().newCaughtExceptionRef());
 		units.add(assign);
@@ -1346,19 +1346,19 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		throw statement in Jimple
 	 */
 	private Unit addThrow (JCThrow node) {
-		Value val=getValue(node.expr);
+		Value val = getValue(node.expr);
 		if (node.expr instanceof JCNewClass) {
-			Local loc=localGenerator.generateLocal(val.getType());
-			Unit assign=Jimple.v().newAssignStmt(loc, val);
+			Local loc = localGenerator.generateLocal(val.getType());
+			Unit assign = Jimple.v().newAssignStmt(loc, val);
 			units.add(assign);
-			newClasslocal=loc;
+			newClasslocal = loc;
 			addConstructorInvocation((JCNewClass)node.expr);
-			Unit thrower=Jimple.v().newThrowStmt(loc);
+			Unit thrower = Jimple.v().newThrowStmt(loc);
 			units.add(thrower);
 			return thrower;
 		}
 		else {
-			Unit thrower=Jimple.v().newThrowStmt(val);
+			Unit thrower = Jimple.v().newThrowStmt(val);
 			units.add(thrower);
 			return thrower;
 		}
@@ -1419,8 +1419,8 @@ public class JavaMethodSource implements MethodSource {
 		Unit specialInvoke = Jimple.v().newInvokeStmt(invoke);
 		if (node.clazz instanceof JCTypeApply) {
 			com.sun.tools.javac.util.List<JCExpression> taglist = ((JCTypeApply)node.clazz).arguments;
-			while (taglist.head!=null) {									//TODO tags for parameterized types
-				taglist=taglist.tail;
+			while (taglist.head != null) {									//TODO tags for parameterized types
+				taglist = taglist.tail;
 			}
 		}
 		units.add(specialInvoke);
@@ -1475,12 +1475,12 @@ public class JavaMethodSource implements MethodSource {
 	 */
 	private Unit addReturn (JCReturn node) {
 		Unit returnStmt;
-		if (node.expr!=null) {
+		if (node.expr != null) {
 			Value value = checkForExprChain(getValue(node.expr));
 			returnStmt = Jimple.v().newReturnStmt(value);
 		}
 		else
-			returnStmt=Jimple.v().newReturnVoidStmt();
+			returnStmt = Jimple.v().newReturnVoidStmt();
 		units.add(returnStmt);
 		return returnStmt;
 	}
@@ -1509,7 +1509,7 @@ public class JavaMethodSource implements MethodSource {
 	 */
 	private Unit addVariableDecl(JCVariableDecl node) {
 		if (node.vartype instanceof JCArrayTypeTree) {												//Array
-			Type arrayType=JavaUtil.getType(node.vartype, deps, thisMethod.getDeclaringClass());
+			Type arrayType = JavaUtil.getType(node.vartype, deps, thisMethod.getDeclaringClass());
 			Local array = new JimpleLocal(node.name.toString(), arrayType);
 			Type type;
 			Value arrayValue;
@@ -1529,7 +1529,7 @@ public class JavaMethodSource implements MethodSource {
 				}
 				else {
 					type = JavaUtil.getType(((JCNewArray)node.init).elemtype, deps, thisMethod.getDeclaringClass());
-					Value val=getValue(((JCNewArray)node.init).dims.head);
+					Value val = getValue(((JCNewArray)node.init).dims.head);
 					arrayValue = Jimple.v().newNewArrayExpr(type, val);
 				}
 			}
@@ -1591,14 +1591,14 @@ public class JavaMethodSource implements MethodSource {
 		String findOperator = node.toString();
 		if ((findOperator.charAt(0) == '+' && findOperator.charAt(1) == '+' ) 
 				|| (findOperator.charAt(findOperator.length()-2) == '+' && findOperator.charAt(findOperator.length()-1) == '+')) {
-			Value add=Jimple.v().newAddExpr(value, IntConstant.v(1));
+			Value add = Jimple.v().newAddExpr(value, IntConstant.v(1));
 			Unit increase = Jimple.v().newAssignStmt(value, add);
 			units.add(increase);
 			return increase;
 		}
 		if ((findOperator.charAt(0) == '-' && findOperator.charAt(1) == '-' ) 
 				|| (findOperator.charAt(findOperator.length()-2) == '-' && findOperator.charAt(findOperator.length()-1) == '-')) {
-			Value sub= Jimple.v().newSubExpr(value, IntConstant.v(1));
+			Value sub = Jimple.v().newSubExpr(value, IntConstant.v(1));
 			Unit decrease = Jimple.v().newAssignStmt(value, sub);
 			units.add(decrease);
 			return decrease;
@@ -1682,18 +1682,18 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		the created soot class
 	 */
 	private SootClass addAnonymousClass(JCNewClass node) {
-		SootClass innerClass=new SootClass(thisMethod.getDeclaringClass().getName()+"$"+(anonymousClassNumber++));
-		SootClass sc=thisMethod.getDeclaringClass();
+		SootClass innerClass = new SootClass(thisMethod.getDeclaringClass().getName()+"$"+(anonymousClassNumber++));
+		SootClass sc = thisMethod.getDeclaringClass();
 		innerClass.addTag(sc.getTag("SourceFileTag"));
-		OuterClassTag outerTag=new OuterClassTag(sc, sc.getName(), true);
+		OuterClassTag outerTag = new OuterClassTag(sc, sc.getName(), true);
 		innerClass.addTag(outerTag);
-		InnerClassTag innerTag=new InnerClassTag(innerClass.getName(), sc.getName(), innerClass.getShortName(), 0);
+		InnerClassTag innerTag = new InnerClassTag(innerClass.getName(), sc.getName(), innerClass.getShortName(), 0);
 		sc.addTag(innerTag);
 		Scene.v().addClass(innerClass);
 		Scene.v().getApplicationClasses().add(innerClass);
 		innerClass.setOuterClass(sc);
-		String packageName=JavaUtil.getPackage((JCIdent)node.clazz, deps, thisMethod.getDeclaringClass());
-		SootClass superClass=Scene.v().getSootClass(packageName);
+		String packageName = JavaUtil.getPackage((JCIdent)node.clazz, deps, thisMethod.getDeclaringClass());
+		SootClass superClass = Scene.v().getSootClass(packageName);
 		innerClass.setSuperclass(superClass); 
 		com.sun.tools.javac.util.List<JCTree> list = ((JCClassDecl) node.def).defs;
 		ArrayList<JCTree> newFieldList = new ArrayList<JCTree>();
@@ -1703,9 +1703,9 @@ public class JavaMethodSource implements MethodSource {
 		}
 		List<Type> parameterTypes = new ArrayList<>();
 		if (!innerClass.declaresMethod("<init>", parameterTypes)) {								//Constructor for anonymous class
-			String methodName="<init>";
+			String methodName = "<init>";
 			Type returnType = VoidType.v();
-			SootMethod newMethod=new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC);
+			SootMethod newMethod = new SootMethod(methodName, parameterTypes, returnType, Modifier.PUBLIC);
 			innerClass.addMethod(newMethod);
 			newMethod.setSource(new JavaMethodSource(deps, newFieldList));
 		}
@@ -1786,8 +1786,8 @@ public class JavaMethodSource implements MethodSource {
 						if (foundMethodParas.size() == givenParas.size()) {
 								matches = true;
 								for (int i=0; i<foundMethodParas.size(); i++) {
-									Type foundType=foundMethodParas.get(i);
-									Type givenType=givenParas.get(i);
+									Type foundType = foundMethodParas.get(i);
+									Type givenType = givenParas.get(i);
 									if (foundType instanceof PrimType)					
 										if (foundType instanceof CharType || foundType instanceof BooleanType)				//if a char or boolean is expected, integer is also allowed
 											matches = matches && ((givenType instanceof IntType)||givenType.equals(foundType));
@@ -1799,9 +1799,9 @@ public class JavaMethodSource implements MethodSource {
 											if (givenType instanceof RefType) {
 												RefType rt = (RefType)givenType;
 												Chain<SootClass> interfaces = rt.getSootClass().getInterfaces();
-												boolean inInterface=false;													//go through all superclasses of the given types
+												boolean inInterface = false;													//go through all superclasses of the given types
 												while ((!rt.equals(foundType)) && rt.getSootClass().hasSuperclass() &&!inInterface) {
-													inInterface=isInInterfaces(interfaces,((RefType)foundType).getSootClass());	//check if an interface matches the type
+													inInterface = isInInterfaces(interfaces,((RefType)foundType).getSootClass());	//check if an interface matches the type
 													rt = rt.getSootClass().getSuperclass().getType();
 													interfaces = rt.getSootClass().getInterfaces();
 												}
@@ -1817,9 +1817,9 @@ public class JavaMethodSource implements MethodSource {
 													Type at = ((ArrayType) givenType).baseType;
 													if (at instanceof RefType && ((ArrayType)foundType).baseType instanceof RefType) {	//if base is a ref type
 														Chain<SootClass> interfaces = ((RefType)at).getSootClass().getInterfaces();
-														boolean inInterface=false;
+														boolean inInterface = false;
 														while ((!at.equals(foundType)) && ((RefType)at).getSootClass().hasSuperclass() &&!inInterface) {
-															inInterface=isInInterfaces(interfaces,((RefType)((ArrayType)foundType).baseType).getSootClass());
+															inInterface = isInInterfaces(interfaces,((RefType)((ArrayType)foundType).baseType).getSootClass());
 															at = ((RefType)at).getSootClass().getSuperclass().getType();
 															interfaces = ((RefType)at).getSootClass().getInterfaces();
 														}
@@ -1876,7 +1876,7 @@ public class JavaMethodSource implements MethodSource {
 											if (givenType instanceof RefType) {
 												RefType rt = (RefType)givenType;
 												Chain<SootClass> interfaces = rt.getSootClass().getInterfaces();
-												boolean inInterface=false;
+												boolean inInterface = false;
 												while ((!rt.equals(foundType)) && rt.getSootClass().hasSuperclass() &&!inInterface) {
 													inInterface = isInInterfaces(interfaces,((RefType)foundType).getSootClass());
 													rt = rt.getSootClass().getSuperclass().getType();
@@ -1894,9 +1894,9 @@ public class JavaMethodSource implements MethodSource {
 													Type at = ((ArrayType) givenType).baseType;
 													if (at instanceof RefType && ((ArrayType)foundType).baseType instanceof RefType) {
 														Chain<SootClass> interfaces = ((RefType)at).getSootClass().getInterfaces();
-														boolean inInterface=false;
+														boolean inInterface = false;
 														while ((!at.equals(foundType)) && ((RefType)at).getSootClass().hasSuperclass() &&!inInterface) {
-															inInterface=isInInterfaces(interfaces,((RefType)((ArrayType)foundType).baseType).getSootClass());
+															inInterface = isInInterfaces(interfaces,((RefType)((ArrayType)foundType).baseType).getSootClass());
 															at = ((RefType)at).getSootClass().getSuperclass().getType();
 															interfaces = ((RefType)at).getSootClass().getInterfaces();
 														}
@@ -1934,18 +1934,18 @@ public class JavaMethodSource implements MethodSource {
 		}
 		for (int i=0; i<givenParas.size(); i++) { 							//if nothing matches, try with classes instead of primtive types 
 			if (givenParas.get(i) instanceof PrimType || givenParas.get(i) instanceof ArrayType) {	//e.g. java.lang.Integer instead of int
-				ArrayList<Type> newparameterlist=new ArrayList<>();			//also try Object instead of array
+				ArrayList<Type> newparameterlist = new ArrayList<>();			//also try Object instead of array
 				for (int j=0; j<i; j++)
 					newparameterlist.add(givenParas.get(j));
 				newparameterlist.add(JavaUtil.primToClass(givenParas.get(i)));
 				for (int j=i+1; j<givenParas.size(); j++)
 					newparameterlist.add(givenParas.get(j));
 				SootMethod method = searchMethod(klass, methodname, newparameterlist);
-				if (method!=null)
+				if (method != null)
 					return method;
 			}
 		}
-		ArrayList<Type> newparameterlist=new ArrayList<>();
+		ArrayList<Type> newparameterlist = new ArrayList<>();
 		if (givenParas.size()>2)
 			for (int i=0; i<givenParas.size()-2; i++)							//If the last two or more parameter have the same type, combine them
 				newparameterlist.add(givenParas.get(i));						//to an array and look again, e.g. "int... a"
@@ -2128,7 +2128,7 @@ public class JavaMethodSource implements MethodSource {
 			Value val = Jimple.v().newNewExpr(type);
 			Unit assign = Jimple.v().newAssignStmt(loc, val);
 			units.add(assign);
-			List<Value> parameterList=new ArrayList<>();
+			List<Value> parameterList = new ArrayList<>();
 			String name = ((JCVariableDecl)fieldList.get(i)).name.toString();
 			parameterList.add(StringConstant.v(name));
 			parameterList.add(IntConstant.v(i));
