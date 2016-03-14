@@ -1367,7 +1367,7 @@ final class AsmMethodSource implements MethodSource {
 			targets.add(box);
 			labels.put(ln, box);
 		}
- 		TableSwitchStmt tss = Jimple.v().newTableSwitchStmt(key.stackOrValue(),
+		TableSwitchStmt tss = Jimple.v().newTableSwitchStmt(key.stackOrValue(),
 				insn.min, insn.max, targets, dflt);
 		key.addBox(tss.getKeyBox());
 		frame.in(key);
@@ -1729,10 +1729,7 @@ final class AsmMethodSource implements MethodSource {
 				Collection<UnitBox> boxes = labels.get(ln);
 				if (boxes != null) {
 					for (UnitBox box : boxes) {
-						Unit uu = u;
-						while (uu instanceof UnitContainer)
-							uu = ((UnitContainer) uu).units[0];
-						box.setUnit(uu);
+						box.setUnit(u instanceof UnitContainer ? ((UnitContainer) u).getFirstUnit() : u);
 					}
 				}
 			}

@@ -53,6 +53,7 @@ import soot.Timers;
 import soot.Trap;
 import soot.Type;
 import soot.Unit;
+import soot.UnknownType;
 import soot.Value;
 import soot.ValueBox;
 import soot.jimple.ArrayRef;
@@ -114,7 +115,7 @@ public class DeadAssignmentEliminator extends BodyTransformer
 		boolean checkInvoke = false;
 				
 		Local thisLocal = null;
-
+		
 		for (Iterator<Unit> it = units.iterator(); it.hasNext(); ) {
 			Unit s = it.next();
 			boolean isEssential = true;
@@ -208,7 +209,8 @@ public class DeadAssignmentEliminator extends BodyTransformer
 
 						// Can trigger a division by zero
 						isEssential  = IntType.v().equals(t1) || LongType.v().equals(t1)
-						            || IntType.v().equals(t2) || LongType.v().equals(t2);	
+						            || IntType.v().equals(t2) || LongType.v().equals(t2)
+						            || UnknownType.v().equals(t1) || UnknownType.v().equals(t2);	
 						
 						if (isEssential && IntType.v().equals(t2)) {
 							Value v = expr.getOp2();
@@ -216,6 +218,8 @@ public class DeadAssignmentEliminator extends BodyTransformer
 								IntConstant i = (IntConstant) v;
 								isEssential = (i.value == 0);
 							}
+							else
+								isEssential = true; // could be 0, we don't know
 						}
 						if (isEssential && LongType.v().equals(t2)) {
 							Value v = expr.getOp2();
@@ -223,6 +227,8 @@ public class DeadAssignmentEliminator extends BodyTransformer
 								LongConstant l = (LongConstant) v;
 								isEssential = (l.value == 0);
 							}
+							else
+								isEssential = true; // could be 0, we don't know
 						}
 					}
 				}

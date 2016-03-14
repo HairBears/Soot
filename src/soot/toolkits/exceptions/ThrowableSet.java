@@ -19,7 +19,6 @@
 
 package soot.toolkits.exceptions;
 
-import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -28,8 +27,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
-import java.util.WeakHashMap;
-import java.lang.ref.Reference;
 
 import soot.AnySubType;
 import soot.FastHierarchy;
@@ -40,6 +37,8 @@ import soot.Scene;
 import soot.Singletons;
 import soot.Unit;
 import soot.options.Options;
+
+import com.google.common.cache.CacheBuilder;
 
 /**
  * <p>
@@ -99,7 +98,7 @@ import soot.options.Options;
 
 public final class ThrowableSet {
 
-	private static final boolean INSTRUMENTING = true;
+	private static final boolean INSTRUMENTING = false;
 
 	/**
 	 * Singleton class for fields and initializers common to all ThrowableSet
@@ -111,7 +110,8 @@ public final class ThrowableSet {
 		/**
 		 * This map stores all referenced <code>ThrowableSet</code>s.
 		 */
-		private final Map<ThrowableSet,Reference<ThrowableSet>> registry = new WeakHashMap<ThrowableSet,Reference<ThrowableSet>>();
+		private final Map<ThrowableSet,ThrowableSet> registry = CacheBuilder
+				.newBuilder().weakValues().<ThrowableSet,ThrowableSet>build().asMap();
 
 		/**
 		 * <code>ThrowableSet</code> containing no exception classes.
@@ -305,13 +305,11 @@ public final class ThrowableSet {
 				registrationCalls++;
 			}
 			ThrowableSet result = new ThrowableSet(include, exclude);
-			Reference<ThrowableSet> ref = registry.get(result);
+			ThrowableSet ref = registry.get(result);
 			if (null != ref) {
-				ThrowableSet old = ref.get();
-				if (null != old)
-					return old;
+				return ref;
 			}
-			registry.put(result, new WeakReference<ThrowableSet>(result));
+			registry.put(result, result);
 			return result;
 		}
 
@@ -396,10 +394,14 @@ public final class ThrowableSet {
 	private Map<Object, ThrowableSet> memoizedAdds;
 
 	private ThrowableSet getMemoizedAdds(Object key) {
+		return memoizedAdds == null ? null : memoizedAdds.get(key);
+	}
+	
+	private void addToMemoizedAdds(Object key, ThrowableSet value) {
 		if (memoizedAdds == null) {
 			memoizedAdds = new HashMap<Object, ThrowableSet>();
 		}
-		return memoizedAdds.get(key);
+		memoizedAdds.put(key, value);
 	}
 
 	/**
@@ -525,7 +527,7 @@ public final class ThrowableSet {
 					RefType incumbentBase = ((AnySubType) incumbent)
 							.getBase();
 					if (hierarchy.canStoreType(e, incumbentBase)) {
-						memoizedAdds.put(e, this);
+						addToMemoizedAdds(e, this);
 						return this;
 					}
 				} else if (!(incumbent instanceof RefType)) {
@@ -539,7 +541,7 @@ public final class ThrowableSet {
 		Set<RefLikeType> resultSet = new HashSet<RefLikeType>(this.exceptionsIncluded);
 		resultSet.add(e);
 		result = Manager.v().registerSetIfNew(resultSet, this.exceptionsExcluded);
-		memoizedAdds.put(e, result);
+		addToMemoizedAdds(e, result);
 		return result;
 	}
 
@@ -689,7 +691,7 @@ public final class ThrowableSet {
 		} else {
 			result = this;
 		}
-		memoizedAdds.put(e, result);
+		addToMemoizedAdds(e, result);
 		return result;
 	}
 
@@ -725,14 +727,14 @@ public final class ThrowableSet {
 				Manager.v().addsExclusionWithoutSearch++;
 			}
 			result = this.add(s.exceptionsIncluded);
-			memoizedAdds.put(s, result);
+			addToMemoizedAdds(s, result);
 		} else if (INSTRUMENTING) {
 			Manager.v().addsInclusionFromMemo++;
 			Manager.v().addsExclusionWithoutSearch++;
 		}
 		return result;
 	}
-
+	
 	/**
 	 * Returns a <code>ThrowableSet</code> which contains all the exceptions in
 	 * <code>addedExceptions</code> in addition to those in this
@@ -835,7 +837,67 @@ public final class ThrowableSet {
 		}
 		return result;
 	}
-
+	
+	/**
+	 * Returns a <code>ThrowableSet</code> which contains all the exceptions in
+	 * this <code>ThrowableSet</code> except for those in <code>removedExceptions</code>. 
+	 *
+	 * @param removedExceptions
+	 *            a set of {@link RefLikeType} and {@link AnySubType} objects to
+	 *            be added to the types included in this
+	 *            <code>ThrowableSet</code>.
+	 *
+	 * @return a set containing all the <code>addedExceptions</code> as well as
+	 *         the exceptions in this set.
+	 */
+	private ThrowableSet remove(Set<RefLikeType> removedExceptions) {
+		// Is there anything to remove?
+		if (removedExceptions.isEmpty())
+			return this;
+		
+		int changes = 0;
+		Set<RefLikeType> resultSet = new HashSet<RefLikeType>(this.exceptionsIncluded);
+		for (RefLikeType tp : removedExceptions) {
+			if (tp instanceof RefType)
+				if (resultSet.remove(tp))
+					changes++;
+		}
+		
+		ThrowableSet result = null;
+		if (changes > 0)
+			result = Manager.v().registerSetIfNew(resultSet, this.exceptionsExcluded);
+		else
+			result = this;
+		return result;
+	}
+	
+	/**
+	 * Returns a <code>ThrowableSet</code> which contains all the exceptions from
+	 * the current set except for those in the given <code>ThrowableSet</code>.
+	 * 
+	 * @param s
+	 * 				The set containing the exceptions to exclude from the new set
+	 * 
+	 * @return
+	 * 				The exceptions that are only in this set, but not in the given set
+	 * 
+	 * @throws ThrowableSet.AlreadyHasExclusionsException
+	 *             if this <code>ThrowableSet</code> or <code>s</code> is the
+	 *             result of a {@link #whichCatchableAs(RefType)} operation, so
+	 *             that it is not possible to represent the addition of
+	 *             <code>s</code> to this <code>ThrowableSet</code>.
+	 */
+	public ThrowableSet remove(ThrowableSet s) {
+		if ((exceptionsExcluded.size() > 0) || (s.exceptionsExcluded.size() > 0)) {
+			throw new AlreadyHasExclusionsException(
+					"ThrowableSet.Add(ThrowableSet): attempt to add to ["
+							+ this.toString() + "] after removals recorded.");
+		}
+		
+		// Remove the exceptions
+		return this.remove(s.exceptionsIncluded);
+	}
+	
 	/**
 	 * Indicates whether this ThrowableSet includes some exception that might be
 	 * caught by a handler argument of the type <code>catcher</code>.

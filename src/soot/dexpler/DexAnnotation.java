@@ -335,7 +335,7 @@ public class DexAnnotation {
                             for (String s : SootToDexUtils.splitSignature(sig.getSignature()))
                             	sigElements.add(new AnnotationStringElem(s, 's', "value"));
                             
-                            AnnotationElem elem = new AnnotationArrayElem(sigElements, 's', "value");
+                            AnnotationElem elem = new AnnotationArrayElem(sigElements, '[', "value");
                             vat = new AnnotationTag("Ldalvik/annotation/Signature;",
                             		Collections.singleton(elem));
                         }
@@ -431,8 +431,15 @@ public class DexAnnotation {
                 continue;
                 
             } else if (atypes.equals("dalvik.annotation.EnclosingMethod")) {
+            	// If we don't have any pointer to the enclosing method, we just
+            	// ignore the annotation
+            	if (eSize == 0)
+            		continue;
+            	
+            	// If the pointer is ambiguous, we are in trouble
                 if (eSize != 1)
                     throw new RuntimeException("error: expected 1 element for annotation EnclosingMethod. Got "+ eSize +" instead.");
+                
                 AnnotationStringElem e = (AnnotationStringElem) getElements(a.getElements()).get(0);
                 String[] split1 = e.getValue().split("\\ \\|");
                 String classString = split1[0];
@@ -635,7 +642,7 @@ public class DexAnnotation {
             {
                 TypeEncodedValue v = (TypeEncodedValue)ev;
                 elem = new AnnotationClassElem(
-                        DexType.toSootAT(v.getValue()), 
+                        v.getValue(), 
                         'c', 
                         ae.getName());
                 break;

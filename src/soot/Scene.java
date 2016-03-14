@@ -49,6 +49,8 @@ import java.util.zip.ZipFile;
 
 import org.xmlpull.v1.XmlPullParser;
 
+import soot.jimple.spark.internal.ClientAccessibilityOracle;
+import soot.jimple.spark.internal.PublicAndProtectedAccessibility;
 import soot.jimple.spark.pag.SparkField;
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.ContextSensitiveCallGraph;
@@ -86,20 +88,21 @@ public class Scene  //extends AbstractHost
         if (scp != null)
             setSootClassPath(scp);
 
-        kindNumberer.add( Kind.INVALID );
-        kindNumberer.add( Kind.STATIC );
-        kindNumberer.add( Kind.VIRTUAL );
-        kindNumberer.add( Kind.INTERFACE );
-        kindNumberer.add( Kind.SPECIAL );
-        kindNumberer.add( Kind.CLINIT );
-        kindNumberer.add( Kind.THREAD );
-        kindNumberer.add( Kind.EXECUTOR );
-        kindNumberer.add( Kind.ASYNCTASK );
-        kindNumberer.add( Kind.FINALIZE );
-        kindNumberer.add( Kind.INVOKE_FINALIZE );
-        kindNumberer.add( Kind.PRIVILEGED );
-        kindNumberer.add( Kind.NEWINSTANCE );
-
+        kindNumberer = new ArrayNumberer<Kind>(new Kind[] {
+        	Kind.INVALID,
+        	Kind.STATIC,
+        	Kind.VIRTUAL,
+        	Kind.INTERFACE,
+        	Kind.SPECIAL,
+        	Kind.CLINIT,
+        	Kind.THREAD,
+        	Kind.EXECUTOR,
+        	Kind.ASYNCTASK,
+        	Kind.FINALIZE,
+        	Kind.INVOKE_FINALIZE,
+        	Kind.PRIVILEGED,
+        	Kind.NEWINSTANCE});
+        
         addSootBasicClasses();
         
         determineExcludedPackages();
@@ -133,7 +136,7 @@ public class Scene  //extends AbstractHost
     
     private final Map<String,RefType> nameToClass = new HashMap<String,RefType>();
 
-    ArrayNumberer<Kind> kindNumberer = new ArrayNumberer<Kind>();
+    final ArrayNumberer<Kind> kindNumberer;
     ArrayNumberer<Type> typeNumberer = new ArrayNumberer<Type>();
     ArrayNumberer<SootMethod> methodNumberer = new ArrayNumberer<SootMethod>();
     Numberer<Unit> unitNumberer = new MapNumberer<Unit>();
@@ -150,6 +153,7 @@ public class Scene  //extends AbstractHost
     private PointsToAnalysis activePointsToAnalysis;
     private SideEffectAnalysis activeSideEffectAnalysis;
     private List<SootMethod> entryPoints;
+    private ClientAccessibilityOracle accessibilityOracle;
 
     boolean allowsPhantomRefs = false;
 
@@ -179,15 +183,25 @@ public class Scene  //extends AbstractHost
     }
     
     /**
-        If this name is in the set of reserved names, then return a quoted version of it.  Else pass it through.
+     * If this name is in the set of reserved names, then return a quoted
+     * version of it.  Else pass it through. If the name consists of multiple
+     * parts separated by dots, the individual names are checked as well.
      */
-    
     public String quotedNameOf(String s)
     {
-        if(reservedNames.contains(s))
-            return "\'" + s + "\'";
-        else
-            return s;
+    	StringBuilder res = new StringBuilder(s.length());
+    	for (String part : s.split("\\.")) {
+    		if (res.length() > 0)
+    			res.append('.');
+	        if(reservedNames.contains(part)) {
+	            res.append('\'');
+	            res.append(part);
+	            res.append('\'');
+	        }
+	        else
+	            res.append(part);
+    	}
+    	return res.toString();
     }
     
     public boolean hasMainClass() {
@@ -204,14 +218,19 @@ public class Scene  //extends AbstractHost
             
         return mainClass;
     }
+    
     public SootMethod getMainMethod() {
         if(!hasMainClass()) {
             throw new RuntimeException("There is no main class set!");
-        } 
-        if (!mainClass.declaresMethod ("main", Collections.<Type>singletonList( ArrayType.v(RefType.v("java.lang.String"), 1) ), VoidType.v())) {
+        }
+        
+        SootMethod mainMethod = mainClass.getMethodUnsafe("main",
+        		Collections.<Type>singletonList( ArrayType.v(RefType.v("java.lang.String"), 1) ),
+        		VoidType.v());
+        if (mainMethod == null) {
             throw new RuntimeException("Main class declares no main method!");
         }
-        return mainClass.getMethod ("main", Collections.<Type>singletonList( ArrayType.v(RefType.v("java.lang.String"), 1) ), VoidType.v());   
+        return mainMethod;   
     }
     
     
@@ -714,6 +733,46 @@ public class Scene  //extends AbstractHost
     }
     
     /**
+     * Returns the RefType with the given class name or primitive type.  
+     * @throws RuntimeException if the Type for this name cannot be found.
+     * Use {@link #getRefTypeUnsafe(String)} to check if type is an registered RefType.
+     */
+    public Type getType(String arg) {
+    	String type = arg.replaceAll("([^\\[\\]]*)(.*)", "$1");
+    	int arrayCount = arg.contains("[") ? arg.replaceAll("([^\\[\\]]*)(.*)", "$2").length() / 2 : 0;
+    	
+    	Type result = getRefTypeUnsafe(type);
+    	
+    	if (result == null) {
+    		if (type.equals("long"))
+              result = LongType.v();
+    		else if (type.equals("short"))
+              result = ShortType.v();
+    		else if (type.equals("double"))
+              result = DoubleType.v();
+    		else if (type.equals("int"))
+              result = IntType.v();
+    		else if (type.equals("float"))
+              result = FloatType.v();
+    		else if (type.equals("byte"))
+              result = ByteType.v();
+    		else if (type.equals("char"))
+              result = CharType.v();
+    		else if (type.equals("void"))
+              result = VoidType.v();
+    		else if (type.equals("boolean"))
+              result = BooleanType.v();
+    		else
+              throw new RuntimeException("unknown type: '" + type + "'");
+    	}
+    	
+    	if (arrayCount != 0) {
+    		result = ArrayType.v(result, arrayCount);
+    	}
+    	return result;
+    }
+    
+    /**
      * Returns the RefType with the given className.  
      * @throws IllegalStateException if the RefType for this class cannot be found.
      * Use {@link #containsType(String)} to check if type is registered
@@ -849,10 +908,10 @@ public class Scene  //extends AbstractHost
     public SideEffectAnalysis getSideEffectAnalysis() 
     {
         if(!hasSideEffectAnalysis()) {
-	    setSideEffectAnalysis( new SideEffectAnalysis(
-			getPointsToAnalysis(),
-			getCallGraph() ) );
-	}
+        	setSideEffectAnalysis( new SideEffectAnalysis(
+        			getPointsToAnalysis(),
+        			getCallGraph() ) );
+        }
             
         return activeSideEffectAnalysis;
     }
@@ -880,12 +939,12 @@ public class Scene  //extends AbstractHost
     /**
         Retrieves the active pointer analysis
      */
-
+    
     public PointsToAnalysis getPointsToAnalysis() 
     {
         if(!hasPointsToAnalysis()) {
-	    return DumbPointerAnalysis.v();
-	}
+        	return DumbPointerAnalysis.v();
+        }
             
         return activePointsToAnalysis;
     }
@@ -909,6 +968,29 @@ public class Scene  //extends AbstractHost
         activePointsToAnalysis = null;
     }
 
+    /****************************************************************************/
+    /**
+     * Retrieves the active client accessibility oracle
+     */
+    public ClientAccessibilityOracle getClientAccessibilityOracle() {
+    	if (!hasClientAccessibilityOracle()) {
+    		return PublicAndProtectedAccessibility.v();
+    	}
+    	
+    	return accessibilityOracle;
+    }
+    
+    public boolean hasClientAccessibilityOracle() {
+    	return accessibilityOracle != null;
+    }
+    
+    public void setClientAccessibilityOracle(ClientAccessibilityOracle oracle) {
+    	accessibilityOracle = oracle;
+    }
+    
+    public void releaseClientAccessibilityOracle() {
+    	accessibilityOracle = null;
+    }
     /****************************************************************************/
     /** Makes a new fast hierarchy is none is active, and returns the active
      * fast hierarchy. */
@@ -1223,7 +1305,7 @@ public class Scene  //extends AbstractHost
 		addBasicClass("java.lang.IndexOutOfBoundsException");
 		addBasicClass("java.lang.ArrayIndexOutOfBoundsException");
 		addBasicClass("java.lang.NegativeArraySizeException");
-		addBasicClass("java.lang.NullPointerException");
+		addBasicClass("java.lang.NullPointerException", SootClass.SIGNATURES);
 		addBasicClass("java.lang.InstantiationError");
 		addBasicClass("java.lang.InternalError");
 		addBasicClass("java.lang.OutOfMemoryError");
@@ -1380,13 +1462,13 @@ public class Scene  //extends AbstractHost
 
         for( Iterator<String> pathIt = Options.v().dynamic_dir().iterator(); pathIt.hasNext(); ) {
 
-            final String path = (String) pathIt.next();
+            final String path = pathIt.next();
             dynClasses.addAll(SourceLocator.v().getClassesUnder(path));
         }
 
         for( Iterator<String> pkgIt = Options.v().dynamic_package().iterator(); pkgIt.hasNext(); ) {
 
-            final String pkg = (String) pkgIt.next();
+            final String pkg = pkgIt.next();
             dynClasses.addAll(SourceLocator.v().classesInDynamicPackage(pkg));
         }
 
@@ -1506,7 +1588,7 @@ public class Scene  //extends AbstractHost
     public List<SootClass> getClasses(int desiredLevel) {
         List<SootClass> ret = new ArrayList<SootClass>();
         for( Iterator<SootClass> clIt = getClasses().iterator(); clIt.hasNext(); ) {
-            final SootClass cl = (SootClass) clIt.next();
+            final SootClass cl = clIt.next();
             if( cl.resolvingLevel() >= desiredLevel ) ret.add(cl);
         }
         return ret;
@@ -1535,7 +1617,7 @@ public class Scene  //extends AbstractHost
         	
         	// try to infer a main class from the usual classpath if none is given 
         	for (Iterator<SootClass> classIter = getApplicationClasses().iterator(); classIter.hasNext();) {
-                    SootClass c = (SootClass) classIter.next();
+                    SootClass c = classIter.next();
                     if (c.declaresMethod ("main", Collections.<Type>singletonList( ArrayType.v(RefType.v("java.lang.String"), 1) ), VoidType.v()))
                     {
                         G.v().out.println("No main class given. Inferred '"+c.getName()+"' as main class.");					

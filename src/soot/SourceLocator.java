@@ -38,7 +38,6 @@ import java.util.zip.ZipFile;
 
 import soot.JavaClassProvider.JarException;
 import soot.asm.AsmClassProvider;
-import soot.dexpler.Util;
 import soot.options.Options;
 import soot.java.JavaClassProvider;
 
@@ -163,6 +162,7 @@ public class SourceLocator
     public List<String> classPath() { return classPath; }
     public void invalidateClassPath() {
         classPath = null;
+        dexClassIndex = null;
     }
 
     private List<String> sourcePath;

@@ -87,7 +87,10 @@ import soot.Type;
 import soot.Unit;
 import soot.dexpler.DexType;
 import soot.dexpler.Util;
+import soot.jimple.ClassConstant;
+import soot.jimple.IdentityStmt;
 import soot.jimple.Jimple;
+import soot.jimple.MonitorStmt;
 import soot.jimple.NopStmt;
 import soot.jimple.Stmt;
 import soot.jimple.toolkits.scalar.EmptySwitchEliminator;
@@ -313,11 +316,11 @@ public class DexPrinter {
         }
         case 'c': {
             AnnotationClassElem e = (AnnotationClassElem)elem;
-            return new ImmutableTypeEncodedValue(SootToDexUtils.getDexClassName(e.getDesc()));
+            return new ImmutableTypeEncodedValue(e.getDesc());
         }
         case '[': {
             AnnotationArrayElem e = (AnnotationArrayElem)elem;
-            Set<EncodedValue> values = new HashSet<EncodedValue>();
+            List<EncodedValue> values = new ArrayList<EncodedValue>();
             for (int i = 0; i < e.getNumValues(); i++){
                 EncodedValue val = buildEncodedValueForAnnotation(e.getValueAt(i));
                 values.add(val);
@@ -619,13 +622,11 @@ public class DexPrinter {
             }
     	}
     	List<SootClass> exceptionList = m.getExceptions();
-    	if (exceptionList != null) {
+    	if (exceptionList != null && !exceptionList.isEmpty()) {
             Set<ImmutableAnnotationElement> elements = new HashSet<ImmutableAnnotationElement>();
             List<ImmutableEncodedValue> valueList = new ArrayList<ImmutableEncodedValue>();
     		for (SootClass exceptionClass : exceptionList) {
-                
 	            valueList.add(new ImmutableTypeEncodedValue(DexType.toDalvikICAT(exceptionClass.getName()).replace(".", "/")));
-	            
     		}
             ImmutableArrayEncodedValue valueValue = new ImmutableArrayEncodedValue(valueList);
             ImmutableAnnotationElement valueElement = new ImmutableAnnotationElement
@@ -637,7 +638,6 @@ public class DexPrinter {
         			elements);
         	annotations.add(ann);
     	}
-
     	
     	return annotations;
     }
@@ -645,7 +645,7 @@ public class DexPrinter {
     private Set<Annotation> buildMethodParameterAnnotations(SootMethod m,
     		final int paramIdx) {
     	Set<String> skipList = new HashSet<String>();
-    	Set<Annotation> annotations = buildCommonAnnotations(m, skipList);
+    	Set<Annotation> annotations = new HashSet<Annotation>();
     	
     	for (Tag t : m.getTags()) {
             if (t.getName().equals("VisibilityParameterAnnotationTag")) {
@@ -1050,6 +1050,11 @@ public class DexPrinter {
 		// would be too expensive for what we need here.
 		FastDexTrapTightener.v().transform(activeBody);
 		
+		// Look for sequences of array element assignments that we can collapse
+		// into bulk initializations
+		DexArrayInitDetector initDetector = new DexArrayInitDetector();
+		initDetector.constructArrayInitializations(activeBody);
+		
 		// Split the tries since Dalvik does not supported nested try/catch blocks
 		TrapSplitter.v().transform(activeBody);
 
@@ -1061,8 +1066,8 @@ public class DexPrinter {
 		// word count of max outgoing parameters
 		Collection<Unit> units = activeBody.getUnits();
 		// register count = parameters + additional registers, depending on the dex instructions generated (e.g. locals used and constants loaded)
-		StmtVisitor stmtV = new StmtVisitor(m, dexFile);
-				
+		StmtVisitor stmtV = new StmtVisitor(m, dexFile, initDetector);
+		
 		toInstructions(units, stmtV);
 		
 		int registerCount = stmtV.getRegisterCount();
@@ -1085,13 +1090,15 @@ public class DexPrinter {
 		
 		Map<Local, Integer> seenRegisters = new HashMap<Local, Integer>();
 		Map<Instruction, LocalRegisterAssignmentInformation> instructionRegisterMap = stmtV.getInstructionRegisterMap();
-
-		for (LocalRegisterAssignmentInformation assignment : stmtV.getParameterInstructionsList()) {
-			//The "this" local gets added automatically, so we do not need to add it explicitly
-			//(at least not if it exists with exactly this name)
-			if (assignment.getLocal().getName().equals("this"))
-				continue;
-			addRegisterAssignmentDebugInfo(assignment, seenRegisters, builder);
+		
+		if (Options.v().write_local_annotations()) {
+			for (LocalRegisterAssignmentInformation assignment : stmtV.getParameterInstructionsList()) {
+				//The "this" local gets added automatically, so we do not need to add it explicitly
+				//(at least not if it exists with exactly this name)
+				if (assignment.getLocal().getName().equals("this"))
+					continue;
+				addRegisterAssignmentDebugInfo(assignment, seenRegisters, builder);
+			}
 		}
     	
         for (BuilderInstruction ins : instructions) {
@@ -1143,9 +1150,8 @@ public class DexPrinter {
             }
 		}
 		
-		
 		for (int registersLeft : seenRegisters.values())
-				builder.addEndLocal(registersLeft);
+			builder.addEndLocal(registersLeft);
 		
 		toTries(activeBody.getTraps(), stmtV, builder, labelAssinger);
         
@@ -1166,22 +1172,36 @@ public class DexPrinter {
 	 */
 	private void fixLongJumps(List<BuilderInstruction> instructions,
 			LabelAssigner labelAssigner, StmtVisitor stmtV) {
+		// Only construct the maps once and update them afterwards
+		Map<Instruction, Integer> instructionsToIndex = new HashMap<Instruction, Integer>();
+		List<Integer> instructionsToOffsets = new ArrayList<Integer>();
+		Map<Label, Integer> labelsToOffsets = new HashMap<Label, Integer>();
+		Map<Label, Integer> labelsToIndex = new HashMap<Label, Integer>();
+		
 		boolean hasChanged;
 		l0 : do {
 			// Look for changes anew every time
 			hasChanged = false;
+			instructionsToOffsets.clear();
 			
-			// Build a mapping between labels and offsets
-			Map<Label, Integer> labelToInsOffset = new HashMap<Label, Integer>();
-			for (int i = 0; i < instructions.size(); i++) {
-				BuilderInstruction bi = instructions.get(i);
+			// Build a mapping between instructions and offsets
+			{
+			int offset = 0;
+			int idx = 0;
+			for (BuilderInstruction bi : instructions) {
+				instructionsToIndex.put(bi, idx);
+				instructionsToOffsets.add(offset);
 	            Stmt origStmt = stmtV.getStmtForInstruction(bi);
 	            if (origStmt != null) {
 	            	Label lbl = labelAssigner.getLabelUnsafe(origStmt);
 	            	if (lbl != null) {
-	            		labelToInsOffset.put(lbl, i);
+	            		labelsToOffsets.put(lbl, offset);
+	            		labelsToIndex.put(lbl, idx);
 	            	}
 	            }
+	            offset += (bi.getFormat().size / 2);
+	            idx++;
+			}
 			}
 			
 	   		// Look for references to labels
@@ -1189,20 +1209,20 @@ public class DexPrinter {
 	   			BuilderInstruction bj = instructions.get(j);
 	   			if (bj instanceof BuilderOffsetInstruction) {
 	   				BuilderOffsetInstruction boj = (BuilderOffsetInstruction) bj;
-	   				Label targetLbl = boj.getTarget();
-	   				Integer offset = labelToInsOffset.get(targetLbl);
-	   				if (offset == null)
-	   					continue;
 	   				
 	   				// Compute the distance between the instructions
 	   				Insn jumpInsn = stmtV.getInsnForInstruction(boj);
 	   				if (jumpInsn instanceof InsnWithOffset) {
 	   					InsnWithOffset offsetInsn = (InsnWithOffset) jumpInsn;
-	   					int distance = getDistanceBetween(instructions, j, offset);
+	   					Integer targetOffset = labelsToOffsets.get(boj.getTarget());
+	   					if (targetOffset == null)
+	   						continue;
+	   					
+	   					int distance = instructionsToOffsets.get(j) - targetOffset;
 	   					if (Math.abs(distance) > offsetInsn.getMaxJumpOffset()) {
 	   						// We need intermediate jumps
-	   						insertIntermediateJump(offset, j, stmtV, instructions,
-	   								labelAssigner);
+	   						insertIntermediateJump(labelsToIndex.get(boj.getTarget()),
+	   								j, stmtV, instructions, labelAssigner);
 	   						hasChanged = true;
 	   						continue l0;
 	   					}
@@ -1232,6 +1252,20 @@ public class DexPrinter {
 		if (!(originalJumpInsn instanceof InsnWithOffset))
 			throw new RuntimeException("Unexpected jump instruction target");
 		InsnWithOffset offsetInsn = (InsnWithOffset) originalJumpInsn;
+		
+		// If this is goto instruction, we can just replace it
+		if (originalJumpInsn instanceof Insn10t) {
+			if (originalJumpInsn.getOpcode() == Opcode.GOTO) {
+				Insn30t newJump = new Insn30t(Opcode.GOTO_32);
+				newJump.setTarget(((Insn10t) originalJumpInsn).getTarget());
+				BuilderInstruction newJumpInstruction = newJump.getRealInsn(labelAssigner);
+				instructions.remove(jumpInsPos);
+				instructions.add(jumpInsPos, newJumpInstruction);
+				stmtV. fakeNewInsn(stmtV.getStmtForInstruction(originalJumpInstruction),
+						newJump, newJumpInstruction);
+				return;
+			}
+		}
 		
 		// Find a position where we can jump to
 		int distance = Math.max(targetInsPos, jumpInsPos) - Math.min(targetInsPos, jumpInsPos);
@@ -1266,9 +1300,9 @@ public class DexPrinter {
 		stmtV.fakeNewInsn(nop, newJump, newJumpInstruction);
 		
 		// We have added something, so we need to fix indices
-		if (newJumpIdx < jumpInsPos)
+		if (newJumpIdx <= jumpInsPos)
 			jumpInsPos++;
-		if (newJumpIdx < targetInsPos)
+		if (newJumpIdx <= targetInsPos)
 			targetInsPos++;
 		
 		// Jump from the original instruction to the new one in the middle
@@ -1290,22 +1324,11 @@ public class DexPrinter {
 		instructions.add(newJumpIdx, jumpAroundInstruction);
 		stmtV.fakeNewInsn(Jimple.v().newNopStmt(), jumpAround, jumpAroundInstruction);
 	}
-
-	private int getDistanceBetween(List<BuilderInstruction> instructions,
-			int i, int j) {
-		if (i == j)
-			return 0;
-		
-		int dist = 0;
-		for (int idx = Math.min(i, j); idx < Math.max(i, j); idx++) {
-			BuilderInstruction bi = instructions.get(idx);
-			dist += (bi.getFormat().size / 2);
-		}
-		return dist;
-	}
-
+	
 	private void addRegisterAssignmentDebugInfo(
-			LocalRegisterAssignmentInformation registerAssignment, Map<Local, Integer> seenRegisters, MethodImplementationBuilder builder) {
+			LocalRegisterAssignmentInformation registerAssignment,
+			Map<Local, Integer> seenRegisters,
+			MethodImplementationBuilder builder) {
 		Local local = registerAssignment.getLocal();
 		String dexLocalType = SootToDexUtils.getDexTypeDescriptor(local.getType());
 		StringReference localName = dexFile.internStringReference(local.getName());
@@ -1325,7 +1348,27 @@ public class DexPrinter {
 	}
 
 	private void toInstructions(Collection<Unit> units, StmtVisitor stmtV) {
+		// Collect all constant arguments to monitor instructions and
+		// pre-alloocate their registers
+		Set<ClassConstant> monitorConsts = new HashSet<ClassConstant>();
 		for (Unit u : units) {
+			if (u instanceof MonitorStmt) {
+				MonitorStmt monitorStmt = (MonitorStmt) u;
+				if (monitorStmt.getOp() instanceof ClassConstant){
+					monitorConsts.add((ClassConstant) monitorStmt.getOp());
+				}
+			}
+		}
+		
+		boolean monitorAllocsMade = false;
+		for (Unit u : units) {
+			if (!monitorAllocsMade
+					&& !monitorConsts.isEmpty()
+					&& !(u instanceof IdentityStmt)) {
+				stmtV.preAllocateMonitorConsts(monitorConsts);
+				monitorAllocsMade = true;
+			}
+			
 			stmtV.beginNewStmt((Stmt) u);
 			u.apply(stmtV);
 		}

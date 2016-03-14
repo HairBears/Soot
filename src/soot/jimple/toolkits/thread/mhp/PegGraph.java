@@ -137,7 +137,7 @@ public class PegGraph implements DirectedGraph
 	 *   Body instance. Each node in the graph corresponds to
 	 *   a unit. The edges are derived from the control flow.
 	 *   
-	 *   @param methDecl               The underlying body we want to make a
+	 *   @param body               The underlying body we want to make a
 	 *                             graph for.
 	 *   @param addExceptionEdges  If true then the control flow edges associated with
 	 *                             exceptions are added.

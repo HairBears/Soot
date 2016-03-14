@@ -6,6 +6,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Set;
 
 import org.jf.dexlib2.Opcode;
 import org.jf.dexlib2.builder.BuilderInstruction;
@@ -14,7 +15,15 @@ import org.jf.dexlib2.writer.builder.BuilderFieldReference;
 import org.jf.dexlib2.writer.builder.DexBuilder;
 
 import soot.ArrayType;
+import soot.BooleanType;
+import soot.ByteType;
+import soot.CharType;
+import soot.DoubleType;
+import soot.FloatType;
+import soot.IntType;
 import soot.Local;
+import soot.LongType;
+import soot.ShortType;
 import soot.SootClass;
 import soot.SootField;
 import soot.SootMethod;
@@ -25,10 +34,13 @@ import soot.jimple.ArrayRef;
 import soot.jimple.AssignStmt;
 import soot.jimple.BreakpointStmt;
 import soot.jimple.CaughtExceptionRef;
+import soot.jimple.ClassConstant;
 import soot.jimple.ConcreteRef;
 import soot.jimple.Constant;
+import soot.jimple.DoubleConstant;
 import soot.jimple.EnterMonitorStmt;
 import soot.jimple.ExitMonitorStmt;
+import soot.jimple.FloatConstant;
 import soot.jimple.GotoStmt;
 import soot.jimple.IdentityStmt;
 import soot.jimple.IfStmt;
@@ -36,6 +48,7 @@ import soot.jimple.InstanceFieldRef;
 import soot.jimple.IntConstant;
 import soot.jimple.InvokeExpr;
 import soot.jimple.InvokeStmt;
+import soot.jimple.LongConstant;
 import soot.jimple.LookupSwitchStmt;
 import soot.jimple.MonitorStmt;
 import soot.jimple.NopStmt;
@@ -49,7 +62,9 @@ import soot.jimple.StmtSwitch;
 import soot.jimple.TableSwitchStmt;
 import soot.jimple.ThisRef;
 import soot.jimple.ThrowStmt;
+import soot.toDex.instructions.AbstractPayload;
 import soot.toDex.instructions.AddressInsn;
+import soot.toDex.instructions.ArrayDataPayload;
 import soot.toDex.instructions.Insn;
 import soot.toDex.instructions.Insn10t;
 import soot.toDex.instructions.Insn10x;
@@ -78,7 +93,7 @@ import soot.util.Switchable;
  * @see Insn intermediate representation of an instruction
  * @see Instruction final representation of an instruction
  */
-public class StmtVisitor implements StmtSwitch {
+class StmtVisitor implements StmtSwitch {
 	
 	private static final Map<Opcode, Opcode> oppositeIfs;
 	
@@ -103,6 +118,7 @@ public class StmtVisitor implements StmtSwitch {
 	
 	private final SootMethod belongingMethod;
 	private final DexBuilder belongingFile;
+	private final DexArrayInitDetector arrayInitDetector;
 	
 	private ConstantVisitor constantV;
 	
@@ -114,26 +130,28 @@ public class StmtVisitor implements StmtSwitch {
 	
 	private List<Insn> insns;
 	
-	private List<SwitchPayload> switchPayloads;
+	private List<AbstractPayload> payloads;
 	
     // maps used to map Jimple statements to dalvik instructions
     private Map<Insn, Stmt> insnStmtMap = new HashMap<Insn, Stmt>();
     private Map<Instruction, LocalRegisterAssignmentInformation> instructionRegisterMap = new IdentityHashMap<Instruction, LocalRegisterAssignmentInformation>();
     private Map<Instruction, Insn> instructionInsnMap = new IdentityHashMap<Instruction, Insn>();
     private Map<Insn, LocalRegisterAssignmentInformation> insnRegisterMap = new IdentityHashMap<Insn, LocalRegisterAssignmentInformation>();
-    private Map<Instruction, SwitchPayload> instructionPayloadMap = new IdentityHashMap<Instruction, SwitchPayload>();
+    private Map<Instruction, AbstractPayload> instructionPayloadMap = new IdentityHashMap<Instruction, AbstractPayload>();
 	private List<LocalRegisterAssignmentInformation> parameterInstructionsList = new ArrayList<LocalRegisterAssignmentInformation>();
 	
 	private Map<Constant, Register> monitorRegs = new HashMap<Constant, Register>();
     
-    public StmtVisitor(SootMethod belongingMethod, DexBuilder belongingFile) {
+    public StmtVisitor(SootMethod belongingMethod, DexBuilder belongingFile,
+    		DexArrayInitDetector arrayInitDetector) {
 		this.belongingMethod = belongingMethod;
 		this.belongingFile = belongingFile;
+		this.arrayInitDetector = arrayInitDetector;
 		constantV = new ConstantVisitor(belongingFile, this);
 		regAlloc = new RegisterAllocator();
 		exprV = new ExprVisitor(this, constantV, regAlloc, belongingFile);
 		insns = new ArrayList<Insn>();
-		switchPayloads = new ArrayList<SwitchPayload>();
+		payloads = new ArrayList<AbstractPayload>();
     }
 	
 	protected void setLastReturnTypeDescriptor(String typeDescriptor) {
@@ -167,7 +185,7 @@ public class StmtVisitor implements StmtSwitch {
     	return parameterInstructionsList;
     }
 
-    public Map<Instruction, SwitchPayload> getInstructionPayloadMap() {
+    public Map<Instruction, AbstractPayload> getInstructionPayloadMap() {
         return this.instructionPayloadMap;
     }
     
@@ -191,7 +209,7 @@ public class StmtVisitor implements StmtSwitch {
 	}
 	
 	public void finalizeInstructions() {
-		addSwitchPayloads();
+		addPayloads();
 		finishRegs();
 		reduceInstructions();
 	}
@@ -266,9 +284,9 @@ public class StmtVisitor implements StmtSwitch {
 		return false;
 	}
 
-	private void addSwitchPayloads() {
+	private void addPayloads() {
 		// add switch payloads to the end of the insns
-		for (SwitchPayload payload : switchPayloads) {
+		for (AbstractPayload payload : payloads) {
             addInsn(new AddressInsn(payload), null);
             addInsn(payload, null);
 		}
@@ -288,8 +306,8 @@ public class StmtVisitor implements StmtSwitch {
             if (insnRegisterMap.containsKey(i)) {
             	instructionRegisterMap.put(realInsn, insnRegisterMap.get(i));
             }
-            if (i instanceof SwitchPayload)
-            	instructionPayloadMap.put(realInsn, (SwitchPayload) i);
+            if (i instanceof AbstractPayload)
+            	instructionPayloadMap.put(realInsn, (AbstractPayload) i);
 		}
 		return finalInsns;
 	}
@@ -351,14 +369,16 @@ public class StmtVisitor implements StmtSwitch {
         // that this constant assignment can throw an exception, leaving us
         // with a dangling monitor. Imprecise static analyzers ftw.
 		Register lockReg = null;
-		if (lockValue instanceof Constant && opc == Opcode.MONITOR_EXIT)
+		if (lockValue instanceof Constant)
 			if ((lockReg = monitorRegs.get(lockValue)) != null)
 				lockReg = lockReg.clone();
 		if (lockReg == null) {
 			lockReg = regAlloc.asImmediate(lockValue, constantV);
 			regAlloc.lockRegister(lockReg);
-			if (lockValue instanceof Constant)
+			if (lockValue instanceof Constant) {
 				monitorRegs.put((Constant) lockValue, lockReg);
+				regAlloc.lockRegister(lockReg);
+			}
 		}
 		return new Insn11x(opc, lockReg);
 	}
@@ -373,6 +393,20 @@ public class StmtVisitor implements StmtSwitch {
 	
 	@Override
 	public void caseAssignStmt(AssignStmt stmt) {
+		// If this is the beginning of an array initialization, we shortcut the
+		// normal translation process
+		List<Value> arrayValues = arrayInitDetector.getValuesForArrayInit(stmt);
+		if (arrayValues != null) {
+			Insn insn = buildArrayFillInsn((ArrayRef) stmt.getLeftOp(), arrayValues);
+			if (insn != null) {
+				addInsn(insn, stmt);
+				return;
+			}
+		}
+		if (arrayInitDetector.getIgnoreUnits().contains(stmt)) {
+			return;
+		}
+		
 		constantV.setOrigStmt(stmt);
         exprV.setOrigStmt(stmt);
 		Value lhs = stmt.getLeftOp();
@@ -494,6 +528,59 @@ public class StmtVisitor implements StmtSwitch {
 		String arrayTypeDescriptor = SootToDexUtils.getArrayTypeDescriptor((ArrayType) array.getType());
 		Opcode opc = getPutGetOpcodeWithTypeSuffix("aput", arrayTypeDescriptor);
 		return new Insn23x(opc, sourceReg, arrayReg, indexReg);
+	}
+	
+	private Insn buildArrayFillInsn(ArrayRef destRef, List<Value> values) {
+		Local array = (Local) destRef.getBase();
+		Register arrayReg = regAlloc.asLocal(array);
+		
+		// Convert the list of values into a list of numbers
+		int elementSize = 0;
+		List<Number> numbers = new ArrayList<Number>(values.size());
+		for (Value val : values) {
+			if (val instanceof IntConstant) {
+				elementSize = Math.max(elementSize, 4);
+				numbers.add(((IntConstant) val).value);
+			}
+			else if (val instanceof LongConstant) {
+				elementSize = Math.max(elementSize, 8);
+				numbers.add(((LongConstant) val).value);				
+			}
+			else if (val instanceof FloatConstant) {
+				elementSize = Math.max(elementSize, 4);
+				numbers.add(((FloatConstant) val).value);				
+			}
+			else if (val instanceof DoubleConstant) {
+				elementSize = Math.max(elementSize, 8);
+				numbers.add(((DoubleConstant) val).value);				
+			}
+			else
+				return null;
+		}
+		
+		// For some local types, we know the size upfront
+		if (destRef.getType() instanceof BooleanType)
+			elementSize = 1;
+		else if (destRef.getType() instanceof ByteType)
+			elementSize = 1;
+		else if (destRef.getType() instanceof CharType)
+			elementSize = 2;
+		else if (destRef.getType() instanceof ShortType)
+			elementSize = 2;
+		else if (destRef.getType() instanceof IntType)
+			elementSize = 4;
+		else if (destRef.getType() instanceof FloatType)
+			elementSize = 4;
+		else if (destRef.getType() instanceof LongType)
+			elementSize = 8;
+		else if (destRef.getType() instanceof DoubleType)
+			elementSize = 8;
+		
+		ArrayDataPayload payload = new ArrayDataPayload(elementSize, numbers);
+		payloads.add(payload);
+		Insn31t insn = new Insn31t(Opcode.FILL_ARRAY_DATA, arrayReg);
+		insn.setPayload(payload);
+		return insn;
 	}
 	
 	private Insn buildStaticFieldGetInsn(Register destinationReg, StaticFieldRef sourceRef) {
@@ -648,7 +735,7 @@ public class StmtVisitor implements StmtSwitch {
 		}
 		List<Unit> targets = stmt.getTargets();
 		SparseSwitchPayload payload = new SparseSwitchPayload(keys, targets);
-		switchPayloads.add(payload);
+		payloads.add(payload);
 		// create sparse-switch instruction that references the payload
 		Value key = stmt.getKey();
 		Stmt defaultTarget = (Stmt) stmt.getDefaultTarget();
@@ -666,7 +753,7 @@ public class StmtVisitor implements StmtSwitch {
 		int firstKey = stmt.getLowIndex();		
 		List<Unit> targets = stmt.getTargets();
 		PackedSwitchPayload payload = new PackedSwitchPayload(firstKey, targets);
-		switchPayloads.add(payload);
+		payloads.add(payload);
 		// create packed-switch instruction that references the payload
 		Value key = stmt.getKey();
 		Stmt defaultTarget = (Stmt) stmt.getDefaultTarget();
@@ -691,5 +778,19 @@ public class StmtVisitor implements StmtSwitch {
         exprV.setOrigStmt(stmt);
 		exprV.setTargetForOffset(target);
 		stmt.getCondition().apply(exprV);
+	}
+	
+	/**
+	 * Pre-allocates and locks registers for the constants used in monitor
+	 * expressions
+	 * @param monitorConsts The set of monitor constants fow which to assign
+	 * fixed registers
+	 */
+	public void preAllocateMonitorConsts(Set<ClassConstant> monitorConsts) {
+		for (ClassConstant c : monitorConsts) {
+			Register lhsReg = regAlloc.asImmediate(c, constantV);
+			regAlloc.lockRegister(lhsReg);
+			monitorRegs.put(c, lhsReg);
+		}
 	}
 }

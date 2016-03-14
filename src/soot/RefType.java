@@ -170,7 +170,7 @@ public class RefType extends RefLikeType implements Comparable<RefType> {
 
 			SootClass thisClass = cm.getSootClass(this.className);
 			SootClass otherClass = cm.getSootClass(((RefType) other).className);
-			SootClass javalangObject = cm.getSootClass("java.lang.Object");
+			SootClass javalangObject = cm.getObjectType().getSootClass();
 
 			LinkedList<SootClass> thisHierarchy = new LinkedList<SootClass>();
 			LinkedList<SootClass> otherHierarchy = new LinkedList<SootClass>();
@@ -226,7 +226,7 @@ public class RefType extends RefLikeType implements Comparable<RefType> {
 							"Could not find a common superclass for " + this
 									+ " and " + other);
 
-				return RefType.v(commonClass.getName());
+				return commonClass.getType();
 			}
 		}
 
