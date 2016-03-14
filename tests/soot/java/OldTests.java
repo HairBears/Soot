@@ -1,11 +1,9 @@
 package soot.java;
 
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -18,7 +16,7 @@ import org.junit.rules.ExpectedException;
 import soot.G;
 import soot.Main;
 
-public abstract class AbstractTest {
+public class OldTests {
 	
 	@Rule public ExpectedException thrown = ExpectedException.none();
 	
@@ -27,11 +25,10 @@ public abstract class AbstractTest {
 		// build class via soot
 		buildClass();
 		// load class
-		Class<?> klass = prepareClass();
+		//Class<?> klass = prepareClass();
 		// invoke test method
-		Method m = klass.getMethod("test", new Class<?>[0]);
-		Object result = m.invoke(klass.newInstance(), new Object[0]);
-		assertTrue((boolean) result);
+		//Method m = klass.getMethod("test", new Class<?>[0]);
+		//Object result = m.invoke(klass.newInstance(), new Object[0]);
 	}
 	
 	@After
@@ -41,10 +38,12 @@ public abstract class AbstractTest {
 		// remove testclasses
 		p = p.substring(0, p.length()-12);
 		// add sootOutput directory
-		p = p + "sootOutput/" +getTarget() + ".class";
+		p = p + "sootOutput/";
 		// instantiate file
 		File f = new File(p);
-		f.delete();
+		for (File file : f.listFiles()) {
+			file.delete();
+		}
 	}
 	
 	private String getTarget() {
@@ -87,19 +86,22 @@ public abstract class AbstractTest {
 			String rtJar = System.getProperty("java.home")+File.separator+"lib"+File.separator+"rt.jar";
 			G.reset();
 			Main.main(new String[] {
-				"-cp", getClassFolder()+File.pathSeparator+rtJar,
+				"-cp", rtJar,
 				"-pp",
 				//"-debug-resolver",
+				"-allow-phantom-refs",
 				"-f", "class",
 				"-validate",
 				"-process-dir",
-				getTarget() + ".java"
-
+				getClassFolder()
 			});
 	}
 	
 	private String getClassFolder() {
-		return "./tests/soot/java/target";
+		String p = ClassLoader.getSystemClassLoader().getResource(".").getPath();
+		p = p.substring(0, p.length()-12);
+		p = p + "systests/java_tests/";
+		return p;
 	}
 
 }

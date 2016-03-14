@@ -17,7 +17,19 @@ import soot.java.ArithmeticTest;
 	RecursionTest.class,
 	VisibilityTest.class,
 	UnusedTest.class,
-	TernaryTest.class
+	TernaryTest.class,
+	StackOverflowErrorTest.class,
+	InterfacesTest.class,
+	SwitchStuffTest.class
+//	,Test14.class
+//	,Test15.class
+//	,Test16.class
+//	,Test17.class
+//	,Test18.class
+//	,Test19.class
+//	,Test20.class
+//	,Test21.class
+//	,Test22.class
 })
 public class AllTests {
 
