@@ -10,8 +10,6 @@ import com.sun.tools.javac.tree.JCTree.*;
 
 import soot.ArrayType;
 import soot.Body;
-import soot.BooleanType;
-import soot.CharType;
 import soot.IntType;
 import soot.Local;
 import soot.MethodSource;
@@ -56,6 +54,7 @@ import soot.jimple.NullConstant;
 import soot.jimple.ReturnStmt;
 import soot.jimple.StringConstant;
 import soot.jimple.internal.JimpleLocal;
+import soot.jimple.internal.JAssignStmt;
 import soot.tagkit.InnerClassTag;
 import soot.tagkit.OuterClassTag;
 import soot.util.Chain;
@@ -283,6 +282,8 @@ public class JavaMethodSource implements MethodSource {
 			return getNewClass((JCNewClass)node);
 		if (node instanceof JCFieldAccess)
 			return getFieldAccess((JCFieldAccess)node);
+		if (node instanceof JCAssignOp)
+			return ((JAssignStmt)addAssignOp((JCAssignOp)node)).getLeftOp();
 		if (node instanceof JCUnary) {
 			if (isPostfix(node))
 				queue.add(node);
@@ -380,7 +381,6 @@ public class JavaMethodSource implements MethodSource {
 				}
 			}
 		}
-	
 		if (node.meth instanceof JCIdent) {													//Method in this class
 			if (method.isStatic()) {														//Method is static
 				invoke = Jimple.v().newStaticInvokeExpr(method, parameterList);
@@ -410,7 +410,7 @@ public class JavaMethodSource implements MethodSource {
 			}
 		}
 		else if (((JCFieldAccess)node.meth).selected instanceof JCFieldAccess){				//With field access, e.g. System.out.println
-			Local refLocal = getLastRefLocal(method.declaringClass().toString());
+			Local refLocal = (Local) checkForExprChain(getValue(((JCFieldAccess)node.meth).selected));
 			invoke = Jimple.v().newVirtualInvokeExpr(refLocal, method, parameterList);
 		}
 		else if (((JCFieldAccess)node.meth).selected instanceof JCNewClass) {				//anonymous class [constructor with parameter?]
@@ -764,6 +764,9 @@ public class JavaMethodSource implements MethodSource {
 	 */
 	private Value getLocal(JCIdent node) {
 		SootClass thisClass = thisMethod.getDeclaringClass();
+		if (JavaUtil.isPackageName(node, deps, thisClass)) {				//If e.g. "A.this.b" is called, "this" needs to be ignored, but A still needs to be found
+			return new JimpleLocal("name", RefType.v(node.toString()));		//so pack it in an local, which is only used to read the class
+		}
 		if (locals.containsKey(node.toString()))							//Variable in this method
 			return locals.get(node.toString());
 		if (thisClass.declaresFieldByName(node.toString())) {
@@ -773,51 +776,96 @@ public class JavaMethodSource implements MethodSource {
 				else
 					return Jimple.v().newInstanceFieldRef(locals.get("thisLocal"),field.makeRef());
 			}
-	/*	if (thisClass.hasOuterClass()) {									//Variable in outer class
-				SootClass outerClass = thisClass.getOuterClass();
-				while (!outerClass.declaresFieldByName(node.toString()) && outerClass.hasOuterClass()) {
-					outerClass = outerClass.getOuterClass();
+		ArrayList<SootClass> innerClassList = new ArrayList<>();
+		FieldRef field = searchField(node, thisClass, innerClassList);		//Search field in every outer/super class or interface
+		if (!field.getField().isStatic()&&!innerClassList.isEmpty()) {		//If it is in an outer class, it might be necessary to invoke the outer class
+			Type type=RefType.v(innerClassList.remove(innerClassList.size()-1).getOuterClass());
+			SootField thisField = thisClass.getField("this$0", type);
+			Value firstField=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), thisField.makeRef());
+			Local firstLoc=localGenerator.generateLocal(type);
+			Unit assign=Jimple.v().newAssignStmt(firstLoc, firstField);		//Get the outer class via the inner class' field
+			Local prevLocal=firstLoc;
+			units.add(assign);
+			while (!innerClassList.isEmpty()) {								//If an class is between the current class and the field's class, all classes after the current's outer class have to be invoked
+				SootClass sc=innerClassList.remove(innerClassList.size()-1);
+				SootField outerClassField=sc.getFieldByName("this$0");
+				SootClass outerClass=sc.getOuterClass();
+				SootMethod newMethod;
+				List<Type> parameterTypes=new ArrayList<>();
+					parameterTypes.add(RefType.v(sc));
+				if (sc.declaresMethod("access$0", parameterTypes)) {
+					newMethod=sc.getMethod("access$0", parameterTypes);
 				}
-				SootField field = outerClass.getFieldByName(node.toString());
-				SootField outerClassField = thisClass.getFieldByName("this$0");
-				Value outerClassInstance = Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), outerClassField.makeRef());
-				Local outerClassLocal = localGenerator.generateLocal(outerClassInstance.getType());
-				Unit assign = Jimple.v().newAssignStmt(outerClassLocal, outerClassInstance);
-				units.add(assign);
-				Value fieldInstance = Jimple.v().newInstanceFieldRef(outerClassLocal, field.makeRef());
-				Local fieldLocal = localGenerator.generateLocal(fieldInstance.getType());
-				Unit assign2 = Jimple.v().newAssignStmt(fieldLocal, fieldInstance);
+				else
+				{
+					newMethod=new SootMethod("access$0", parameterTypes, outerClassField.getType(), Modifier.STATIC);
+					sc.addMethod(newMethod);								//An additional method to get it's outer class is necesary
+					JimpleBody body=Jimple.v().newBody(newMethod);
+					Chain<Local> localChain=body.getLocals();
+					Chain<Unit> unitChain=body.getUnits();
+					Local loc=new JimpleLocal("parameter", RefType.v(sc));
+					localChain.add(loc);
+					Unit ident=Jimple.v().newIdentityStmt(loc, Jimple.v().newParameterRef(RefType.v(sc), 0));
+					unitChain.add(ident);
+					
+					Local loc2=new JimpleLocal("field", RefType.v(outerClass));
+					localChain.add(loc2);
+					Value fieldAccess=Jimple.v().newInstanceFieldRef(loc, outerClassField.makeRef());
+					Unit assignField=Jimple.v().newAssignStmt(loc2, fieldAccess);
+					unitChain.add(assignField);
+					Unit returnUnit=Jimple.v().newRetStmt(loc2);
+					unitChain.add(returnUnit);
+					newMethod.setActiveBody(body);
+				}
+				Local loc3=localGenerator.generateLocal(RefType.v(outerClass));
+				List<Value> parameter=new ArrayList<>();
+				parameter.add(prevLocal);
+				Value sinvoke=Jimple.v().newStaticInvokeExpr(newMethod.makeRef(), parameter);
+				Unit assign2=Jimple.v().newAssignStmt(loc3, sinvoke);
 				units.add(assign2);
-				return fieldLocal;
-		}*/
-		SootField field = searchField(node, thisClass);
+				prevLocal=loc3;
+			}
+			field=Jimple.v().newInstanceFieldRef(prevLocal, field.getFieldRef());		//Finally get the field
+		}
 		if (field != null) {
-			if (field.isStatic()) 
-				return Jimple.v().newStaticFieldRef(field.makeRef());
-			else
-				return Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), field.makeRef());	//TODO ??
+			return field;
 		}
 		throw new AssertionError("Unknown local " + node.toString());
 	}
 	
-	private SootField searchField(JCIdent node, SootClass sc) {
-		if (sc.declaresFieldByName(node.toString()))
-			return sc.getFieldByName(node.toString());
+	/**
+	 * Searches in every possible path of interfaces, super classes and outer classes for the field
+	 * @param node				the field 
+	 * @param sc				current class
+	 * @param innerClassList	chain of inner classes to go through to get the field
+	 * @return
+	 */
+	private FieldRef searchField(JCIdent node, SootClass sc, ArrayList<SootClass> innerClassList) {
+		if (sc.declaresFieldByName(node.toString())) {
+			SootField field = sc.getFieldByName(node.toString());
+			if (field.isStatic())
+				return Jimple.v().newStaticFieldRef(field.makeRef());
+			else
+				return Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), field.makeRef());
+		}
 		if (sc.hasOuterClass()) {
-			SootField field = searchField(node, sc.getOuterClass());
-			if (field != null)
+			FieldRef field = searchField(node, sc.getOuterClass(), innerClassList);
+			if (field != null) {
+				innerClassList.add(sc);
 				return field;
+			}	
 		}
 		if (sc.hasSuperclass()) {
-			SootField field = searchField(node, sc.getSuperclass());
-			if (field != null)
+		FieldRef field = searchField(node, sc.getSuperclass(), innerClassList);
+			if (field != null) {
 				return field;
+			}
 		}
 		Chain<SootClass> interfaceList = sc.getInterfaces();
 		Iterator<SootClass> it = interfaceList.iterator();
 		while (it.hasNext()) {
 			SootClass interfaceClass = it.next();
-			SootField field = searchField(node, interfaceClass);
+			FieldRef field = searchField(node, interfaceClass, innerClassList);
 			if (field != null)
 				return field;
 		}
@@ -831,12 +879,24 @@ public class JavaMethodSource implements MethodSource {
 	 */
 	private Value getFieldAccess(JCFieldAccess node) {
 		Value loc;															//Field access via class name, static
-		if (JavaUtil.isPackageName((JCIdent)node.selected, deps, thisMethod.getDeclaringClass())) {
-			String packageName = JavaUtil.getPackage((JCIdent)node.selected, deps, thisMethod.getDeclaringClass());
-			SootClass clazz = Scene.v().getSootClass(packageName);
-			SootField field = clazz.getFieldByName(node.name.toString());
-			loc = Jimple.v().newStaticFieldRef(field.makeRef());
-			return loc;
+		if (node.selected instanceof JCIdent && JavaUtil.isPackageName((JCIdent)node.selected, deps, thisMethod.getDeclaringClass())) {
+			if (node.name.toString().equals("super"))
+				return locals.get("thisLocal");
+			else if (node.name.toString().equals("this"))
+				if (node.selected instanceof JCIdent) {
+					return getValue(node.selected);
+				}
+				else
+				{
+					return null;
+				}
+			else {
+				String packageName = JavaUtil.getPackage((JCIdent)node.selected, deps, thisMethod.getDeclaringClass());
+				SootClass clazz = Scene.v().getSootClass(packageName);
+				SootField field = clazz.getFieldByName(node.name.toString());
+				loc = Jimple.v().newStaticFieldRef(field.makeRef());
+				return loc;
+			}
 		}
 		else
 		{																	//Field access via variable, non-static
@@ -844,11 +904,17 @@ public class JavaMethodSource implements MethodSource {
 			if (node.selected.toString().equals("this"))
 				val = locals.get("thisLocal");
 			else
-				val = getLocal((JCIdent)node.selected);
+				val = checkForExprChain(getValue(node.selected));
 			if (val.getType() instanceof ArrayType && node.name.toString().equals("length")) {
 				loc = Jimple.v().newLengthExpr(val);
 			}
-			else {
+			else if (val instanceof RefType) {
+				SootClass clazz = ((RefType) val).getSootClass();
+				SootField field = clazz.getFieldByName(node.name.toString());
+				loc = Jimple.v().newStaticFieldRef(field.makeRef());
+			}
+			else
+			{
 				SootClass clazz = Scene.v().getSootClass(val.getType().toString());
 				SootField field = clazz.getFieldByName(node.name.toString());
 				loc = Jimple.v().newInstanceFieldRef(val, field.makeRef());
@@ -887,10 +953,14 @@ public class JavaMethodSource implements MethodSource {
 			}
 		}
 		if (thisMethod.getName().equals("<init>")) {								//Call constructor of the super class, if "super" is used, use parameter
-			JCTree node = ((JCExpressionStatement)methodBodyTree.head).expr;
+			JCTree node;
+			if (methodBodyTree.head!=null)
+				node = ((JCExpressionStatement)methodBodyTree.head).expr;
+			else
+				node = null;
 			ArrayList<Type> parameterTypes = new ArrayList<>();
 			ArrayList<Value> parameter = new ArrayList<>();
-			if (node instanceof JCMethodInvocation && ((JCMethodInvocation) node).meth.toString().equals("super")) {
+			if (node!=null && node instanceof JCMethodInvocation && ((JCMethodInvocation) node).meth.toString().equals("super")) {
 				com.sun.tools.javac.util.List<JCExpression> superTree = ((JCMethodInvocation)node).args;
 				while (superTree.head != null) {
 					Value val = checkForExprChain(getValue(superTree.head));
@@ -931,7 +1001,7 @@ public class JavaMethodSource implements MethodSource {
 			ArrayList<Type> parameterTypes = new ArrayList<>();
 			ArrayList<Value> parameter = new ArrayList<>();
 			SootClass superClass = thisMethod.getDeclaringClass().getSuperclass();
-			if (!superClass.declaresMethod("<init>", parameterTypes)) {
+			if (!superClass.isPhantom()&&!superClass.declaresMethod("<init>", parameterTypes)) {
 				parameterTypes.add(locals.get("outerLocal").getType());
 				parameter.add(locals.get("outerLocal"));
 			}
@@ -1032,7 +1102,7 @@ public class JavaMethodSource implements MethodSource {
 				method = searchMethod(clazz, fieldAccessTree.name.toString(), parameterTypes);
 			}
 			else if (fieldAccessTree.selected instanceof JCFieldAccess){										//Method called on a field
-				Local loc = (Local)checkForExprChain(getFieldAccess((JCFieldAccess)fieldAccessTree.selected));
+				Value loc = getFieldAccess((JCFieldAccess)fieldAccessTree.selected);
 				SootClass clazz;
 				if (loc.getType() instanceof PrimType || loc.getType() instanceof ArrayType)
 					clazz = Scene.v().getSootClass(JavaUtil.addPackageName("Object"));
@@ -1040,8 +1110,12 @@ public class JavaMethodSource implements MethodSource {
 					clazz = Scene.v().getSootClass(JavaUtil.addFieldPackageName(loc.getType().toString()));
 				method = searchMethod(clazz, fieldAccessTree.name.toString(), parameterTypes);
 			}
-			else if (fieldAccessTree.selected instanceof JCNewClass){											//Method called on a new, temporary class
-				SootClass clazz = addAnonymousClass((JCNewClass)fieldAccessTree.selected);
+			else if (fieldAccessTree.selected instanceof JCNewClass){			//Method called on a new, temporary class
+				SootClass clazz;
+				if (((JCNewClass)fieldAccessTree.selected).def instanceof JCClassDecl)
+					clazz = addAnonymousClass((JCNewClass)fieldAccessTree.selected);
+				else
+					clazz = Scene.v().getSootClass(JavaUtil.getPackage((JCIdent)((JCNewClass)fieldAccessTree.selected).clazz, deps, thisMethod.getDeclaringClass()));
 				method = searchMethod(clazz, fieldAccessTree.name.toString(), parameterTypes);
 			}
 			else if (fieldAccessTree.selected instanceof JCLiteral) {											//Method called on a direct input, e.g. "abc".length()
@@ -1056,22 +1130,6 @@ public class JavaMethodSource implements MethodSource {
 			return method.makeRef();
 		else
 			throw new AssertionError("Can't find method " + node.toString() + " " + parameterTypes.toString());
-	}
-	
-	/**
-	 * Searches for the last added local with a reference to the given class
-	 * @param ref	name of the class
-	 * @return		last local with reference to class
-	 */
-	private Local getLastRefLocal(String ref) {					//TODO unsortiert
-		Iterator<Local> iter = locals.values().iterator();
-		Local ret = null;
-		while (iter.hasNext()) {
-			Local next = iter.next();
-			if (next.getType().toString().equals(ref))
-				ret = next;
-		}
-		return ret;
 	}
 	
 	/**
@@ -1413,9 +1471,13 @@ public class JavaMethodSource implements MethodSource {
 		List<Type> parameterTypes = new ArrayList<>();
 		for (int i=0; i<parameter.size(); i++)
 			parameterTypes.add(parameter.get(i).getType());					//Parameter types to search matching constructor
+		if (newClasslocal==null) {
+			newClasslocal=localGenerator.generateLocal(RefType.v(node.clazz.toString()));
+		}
 		SootClass clazz = Scene.v().getSootClass(newClasslocal.getType().toString());
 		SootMethodRef method = Scene.v().makeMethodRef(clazz, "<init>", parameterTypes, VoidType.v(), false);
 		Value invoke = Jimple.v().newSpecialInvokeExpr(newClasslocal, method, parameter);
+		newClasslocal = null;
 		Unit specialInvoke = Jimple.v().newInvokeStmt(invoke);
 		if (node.clazz instanceof JCTypeApply) {
 			com.sun.tools.javac.util.List<JCExpression> taglist = ((JCTypeApply)node.clazz).arguments;
@@ -1491,7 +1553,7 @@ public class JavaMethodSource implements MethodSource {
 	 * @return 		assign-statement in Jimple
 	 */
 	private Unit addAssign(JCAssign node) {
-		Value var = getValue(node.lhs);
+		Value var = getValue(node.lhs);		//TODO array[0]=i conflict, checkForExprChain?
 		Value right = getValue(node.rhs);
 		if (!(var instanceof Local))
 			right = checkForExprChain(right);
@@ -1613,7 +1675,7 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		combined operation as normal assign-statement
 	 */
 	private Unit addAssignOp(JCAssignOp node) {
-		Local var = (Local) checkForExprChain(getLocal((JCIdent)node.lhs));
+		Value var = checkForExprChain(getValue(node.lhs));
 		Value binary;
 		Value right = checkForExprChain(getValue(node.rhs));
 		
@@ -1675,7 +1737,6 @@ public class JavaMethodSource implements MethodSource {
 		
 	}
 
-	
 	/**
 	 * Adds an anonymous class as an inner class
 	 * @param node	node containing the anonymous class
@@ -1732,9 +1793,7 @@ public class JavaMethodSource implements MethodSource {
 		}		
 		return val;
 	}
-	
 
-	
 	/**
 	 * If the node is a block, transforms it into single statements or else returns its head
 	 * @param node	node containing the block or a single statement
@@ -1754,9 +1813,7 @@ public class JavaMethodSource implements MethodSource {
 		else
 			return getUnit(node);
 	}
-	
 
-	
 	/**
 	 * Searches for a matching method, considers all superclasses and interfaces
 	 * @param klass				the base class, where either the class itself or its superclass contains the method
@@ -1765,202 +1822,145 @@ public class JavaMethodSource implements MethodSource {
 	 * @return					the found method
 	 */
 	private SootMethod searchMethod(SootClass klass, String methodname, List<Type> givenParas) {
-		if (klass.declaresMethod(methodname, givenParas))		//class itself has the method with matching parameters
+		if (methodname.equals("this"))
+			methodname="<init>";
+		if (klass.declaresMethod(methodname, givenParas))		//Class itself has the method with matching parameters
 			return klass.getMethod(methodname, givenParas);
-		else 
-		{
-			SootClass currentClass = klass;
-			while (currentClass.hasSuperclass() && !currentClass.declaresMethod(methodname, givenParas))
-				currentClass = currentClass.getSuperclass();
-			if (currentClass.declaresMethod(methodname, givenParas))		//go through all superclasses with exact parameter types
-				return currentClass.getMethod(methodname, givenParas);
-			else
-			{
-				currentClass = klass;
-				List<SootMethod> methodList = currentClass.getMethods();			//search in class itself with supertypes/interfaces of parameter
-				for (int j=0; j<methodList.size(); j++) {
-					if (methodList.get(j).getName().equals(methodname)) {
-						SootMethod foundMethod = methodList.get(j);
-						List<Type> foundMethodParas = foundMethod.getParameterTypes();
-						boolean matches = false;
-						if (foundMethodParas.size() == givenParas.size()) {
-								matches = true;
-								for (int i=0; i<foundMethodParas.size(); i++) {
-									Type foundType = foundMethodParas.get(i);
-									Type givenType = givenParas.get(i);
-									if (foundType instanceof PrimType)					
-										if (foundType instanceof CharType || foundType instanceof BooleanType)				//if a char or boolean is expected, integer is also allowed
-											matches = matches && ((givenType instanceof IntType)||givenType.equals(foundType));
-										else
-											matches = matches && givenType.equals(foundType);
-									else
-									{
-										if (foundType instanceof RefType) {
-											if (givenType instanceof RefType) {
-												RefType rt = (RefType)givenType;
-												Chain<SootClass> interfaces = rt.getSootClass().getInterfaces();
-												boolean inInterface = false;													//go through all superclasses of the given types
-												while ((!rt.equals(foundType)) && rt.getSootClass().hasSuperclass() &&!inInterface) {
-													inInterface = isInInterfaces(interfaces,((RefType)foundType).getSootClass());	//check if an interface matches the type
-													rt = rt.getSootClass().getSuperclass().getType();
-													interfaces = rt.getSootClass().getInterfaces();
-												}
-												matches = matches && (rt.equals(foundType) || inInterface);
-											}
-											else
-												matches = false;
-										}
-										else
-										{
-											if (foundType instanceof ArrayType) {
-												if (givenType instanceof ArrayType) {					//if both are arrays
-													Type at = ((ArrayType) givenType).baseType;
-													if (at instanceof RefType && ((ArrayType)foundType).baseType instanceof RefType) {	//if base is a ref type
-														Chain<SootClass> interfaces = ((RefType)at).getSootClass().getInterfaces();
-														boolean inInterface = false;
-														while ((!at.equals(foundType)) && ((RefType)at).getSootClass().hasSuperclass() &&!inInterface) {
-															inInterface = isInInterfaces(interfaces,((RefType)((ArrayType)foundType).baseType).getSootClass());
-															at = ((RefType)at).getSootClass().getSuperclass().getType();
-															interfaces = ((RefType)at).getSootClass().getInterfaces();
-														}
-														matches = matches && (at.equals(foundType) || inInterface);
-													}
-													else if (at instanceof PrimType && ((ArrayType)foundType).baseType instanceof PrimType) {	//if base is a primitive type
-														matches = matches && (at.equals(((ArrayType)foundType).baseType));
-													}
-												}
-												else if (givenType instanceof RefType && ((ArrayType)foundType).baseType instanceof RefType){	//if an array is expected, but only a ref type is given
-													Type at = givenType;
-													Chain<SootClass> interfaces = ((RefType)at).getSootClass().getInterfaces();
-													boolean inInterface = false;
-													while ((!at.equals(((ArrayType)foundType).baseType)) && ((RefType)at).getSootClass().hasSuperclass() &&!inInterface) {
-														inInterface = isInInterfaces(interfaces,((RefType)((ArrayType)foundType).baseType).getSootClass());
-														at = ((RefType)at).getSootClass().getSuperclass().getType();
-														interfaces = ((RefType)at).getSootClass().getInterfaces();
-													}
-													matches = matches && (at.equals(((ArrayType)foundType).baseType) || inInterface);
-												}
-												else																				//if an array is expected, but only a primitive type is given
-													matches = matches && (((ArrayType)foundType).baseType.equals(givenType));
-											}
-										}
-							
-									}
-								}
-								if (matches)
-									return foundMethod;
-						}
-					}
-				}
-				while (currentClass.hasSuperclass()) {				//searches in superclasses for method with supertypes/interfaces of parameter
-					currentClass = currentClass.getSuperclass();
-					methodList = currentClass.getMethods();
-					for (int j=0; j<methodList.size(); j++) {
-						if (methodList.get(j).getName().equals(methodname)) {
-							SootMethod foundMethod = methodList.get(j);
-							List<Type> foundMethodParas = foundMethod.getParameterTypes();
-							boolean matches = false;
-							if (foundMethodParas.size() == givenParas.size()) {
-								matches = true;
-								for (int i=0; i<foundMethodParas.size(); i++) {
-									Type foundType = foundMethodParas.get(i);
-									Type givenType = givenParas.get(i);
-									if (foundType instanceof PrimType)
-										if (foundType instanceof CharType || foundType instanceof BooleanType)
-											matches = matches && ((givenType instanceof IntType)||givenType.equals(foundType));
-										else
-											matches = matches && givenType.equals(foundType);
-									else
-									{
-										if (foundType instanceof RefType) {
-											if (givenType instanceof RefType) {
-												RefType rt = (RefType)givenType;
-												Chain<SootClass> interfaces = rt.getSootClass().getInterfaces();
-												boolean inInterface = false;
-												while ((!rt.equals(foundType)) && rt.getSootClass().hasSuperclass() &&!inInterface) {
-													inInterface = isInInterfaces(interfaces,((RefType)foundType).getSootClass());
-													rt = rt.getSootClass().getSuperclass().getType();
-													interfaces = rt.getSootClass().getInterfaces();
-												}
-												matches = matches && (rt.equals(foundType) || inInterface);
-											}
-											else
-												matches = false;
-										}
-										else
-										{
-											if (foundType instanceof ArrayType) {
-												if (givenType instanceof ArrayType) {
-													Type at = ((ArrayType) givenType).baseType;
-													if (at instanceof RefType && ((ArrayType)foundType).baseType instanceof RefType) {
-														Chain<SootClass> interfaces = ((RefType)at).getSootClass().getInterfaces();
-														boolean inInterface = false;
-														while ((!at.equals(foundType)) && ((RefType)at).getSootClass().hasSuperclass() &&!inInterface) {
-															inInterface = isInInterfaces(interfaces,((RefType)((ArrayType)foundType).baseType).getSootClass());
-															at = ((RefType)at).getSootClass().getSuperclass().getType();
-															interfaces = ((RefType)at).getSootClass().getInterfaces();
-														}
-														matches = matches && (at.equals(foundType) || inInterface);
-													}
-													else if (at instanceof PrimType && ((ArrayType)foundType).baseType instanceof PrimType) {
-														matches = matches && (at.equals(((ArrayType)foundType).baseType));
-													}
-												}
-												else if (givenType instanceof RefType && ((ArrayType)foundType).baseType instanceof RefType){
-													Type at = givenType;
-													Chain<SootClass> interfaces = ((RefType)at).getSootClass().getInterfaces();
-													boolean inInterface = false;
-													while ((!at.equals(((ArrayType)foundType).baseType)) && ((RefType)at).getSootClass().hasSuperclass() &&!inInterface) {
-														inInterface = isInInterfaces(interfaces,((RefType)((ArrayType)foundType).baseType).getSootClass());
-														at = ((RefType)at).getSootClass().getSuperclass().getType();
-														interfaces = ((RefType)at).getSootClass().getInterfaces();
-													}
-													matches = matches && (at.equals(((ArrayType)foundType).baseType) || inInterface);
-												}
-												else
-													matches = matches && (((ArrayType)foundType).baseType.equals(givenType));
-											}
-										}
-									}
-							
-								}
-						}
-						if (matches)
-							return foundMethod;
-						}
-					}
-				}
-			}
-		}
-		for (int i=0; i<givenParas.size(); i++) { 							//if nothing matches, try with classes instead of primtive types 
-			if (givenParas.get(i) instanceof PrimType || givenParas.get(i) instanceof ArrayType) {	//e.g. java.lang.Integer instead of int
-				ArrayList<Type> newparameterlist = new ArrayList<>();			//also try Object instead of array
-				for (int j=0; j<i; j++)
-					newparameterlist.add(givenParas.get(j));
-				newparameterlist.add(JavaUtil.primToClass(givenParas.get(i)));
-				for (int j=i+1; j<givenParas.size(); j++)
-					newparameterlist.add(givenParas.get(j));
-				SootMethod method = searchMethod(klass, methodname, newparameterlist);
-				if (method != null)
-					return method;
-			}
-		}
-		ArrayList<Type> newparameterlist = new ArrayList<>();
-		if (givenParas.size()>2)
-			for (int i=0; i<givenParas.size()-2; i++)							//If the last two or more parameter have the same type, combine them
-				newparameterlist.add(givenParas.get(i));						//to an array and look again, e.g. "int... a"
-		if (givenParas.get(givenParas.size()-1) instanceof ArrayType)
-			newparameterlist.add(givenParas.get(givenParas.size()-1));
 		else {
-			Type newType = ArrayType.v(givenParas.get(givenParas.size()-1),1);
-			newparameterlist.add(newType);
+			List<SootMethod> methodList=klass.getMethods();
+			for (int i=0; i<methodList.size(); i++) {
+				if (methodList.get(i).getName().equals(methodname)) {			//Search for method with the correct name
+					SootMethod foundMethod=methodList.get(i);
+					List<Type> foundParameter = foundMethod.getParameterTypes();
+					boolean matches=true;
+					if (foundParameter.size()==givenParas.size()) {				
+						matches=matchingParameter(foundParameter, givenParas);	//If the number of parameters match, check if the types match
+					}
+					else if (foundParameter.size()<givenParas.size()) {			//If less parameter are expected, check if all but the last types match
+						List<Type> firstPartFound=new ArrayList<Type>();
+						List<Type> firstPartGiven=new ArrayList<Type>();
+						int j;
+						for (j=0; j<foundParameter.size()-1; j++) {				
+							firstPartFound.add(foundParameter.get(j));			
+							firstPartGiven.add(givenParas.get(j));
+						}
+						matches=matchingParameter(firstPartFound, firstPartGiven);
+						if (matches) {
+							if (foundParameter.get(j) instanceof ArrayType) {				//if yes, check if the rest of the given parameter can be summed up in an array
+								for (int k=j; k<givenParas.size(); k++) {					//Needed for methods with parameter like "int... a"
+									List<Type> secondPartFound=new ArrayList<Type>();
+									List<Type> secondPartGiven=new ArrayList<Type>();
+									secondPartFound.add(foundParameter.get(j));
+									secondPartGiven.add(givenParas.get(k));
+									matches=matches&&matchingParameter(secondPartFound, secondPartGiven);
+								}
+							}
+						}
+					}
+					if (matches)
+						return foundMethod;						//If everything matches, it's an allowed method
+				}
+			}
 		}
-		SootMethod method = searchMethod(klass, methodname, newparameterlist);
-		if (method != null)
+		if (klass.hasOuterClass()) {							//Check the outer class(es) for a matching method
+			SootMethod method=searchMethod(klass.getOuterClass(), methodname, givenParas);
+			if (method!=null)
+				return method;
+		}
+		if (klass.hasSuperclass()) {							//Check the super class(es) for a matching method
+			SootMethod method=searchMethod(klass.getSuperclass(), methodname, givenParas);
+			if (method!=null)
+				return method;
+		}
+		if (klass.isPhantom())  {								//If no matching method is found but a phantom class is found, add the method
+			SootMethod method=new SootMethod(methodname, givenParas, VoidType.v());
+			klass.addMethod(method);
 			return method;
+		}
 		return null;
 	}
 	
+	/**
+	 * Checks if two lists of types match
+	 * @param foundParameter	the fixed list of types
+	 * @param givenParas		the list of types that need to match
+	 * @return					true, if the two lists match, else false
+	 */
+	private boolean matchingParameter(List<Type> foundParameter, List<Type> givenParas) {
+		for (int j=0; j<foundParameter.size(); j++) {
+			Type givenType=givenParas.get(j);
+			Type foundType=foundParameter.get(j);
+			if (foundType.equals(givenType))
+				continue;
+			if (foundType instanceof PrimType && givenType instanceof PrimType)				//Primitive types can be casted to each other
+				continue;
+			if (foundType instanceof RefType && givenType instanceof PrimType) {			//Transform e.g. int to java.lang.Integer
+				if (foundType.equals(JavaUtil.primToClass(givenType)))
+					continue;
+				if (foundType.equals(RefType.v("java.lang.Object")))						//If Object is expected, almost everything is allowed
+					continue;
+			}
+			if (foundType instanceof RefType && givenType instanceof RefType) {				//Check if two classes match or one of the second type's super/outer classes or interfaces
+				if (isAllowedClass(((RefType)foundType).getSootClass(), ((RefType)givenType).getSootClass()))
+					continue;
+			}
+			if (foundType instanceof ArrayType && givenType instanceof ArrayType) {
+				if (((ArrayType)foundType).baseType instanceof PrimType 
+						&&((ArrayType)givenType).baseType instanceof PrimType)				//Primitive types can be casted to each other
+					continue;
+				if (((ArrayType)foundType).baseType instanceof RefType 						
+						&& ((ArrayType)givenType).baseType instanceof PrimType) {
+					if (((ArrayType)foundType).baseType.equals(JavaUtil.primToClass(((ArrayType)givenType).baseType)))
+						continue;															//e.g. int can be transformed to java.lang.Integer
+					if (((ArrayType)foundType).baseType.equals(RefType.v("java.lang.Object")))
+						continue;															//If Object is expected, almost everything is allowed
+				}
+				if (((ArrayType)foundType).baseType instanceof RefType 
+						&& ((ArrayType)givenType).baseType instanceof RefType)
+					if (isAllowedClass(((RefType)((ArrayType)foundType).baseType).getSootClass(), ((RefType)((ArrayType)givenType).baseType).getSootClass()))
+						continue;															//Check if the base types of the arrays match
+			}
+			if (foundType instanceof ArrayType && givenType instanceof PrimType) {
+				if (((ArrayType)foundType).baseType instanceof PrimType)					//An array is expected, but only one value is given
+					continue;
+			}
+			if (foundType instanceof ArrayType && givenType instanceof RefType) {
+				if (isAllowedClass(((RefType)((ArrayType)foundType).baseType).getSootClass(), ((RefType)givenType).getSootClass()))
+					continue;
+			}
+			return false;
+		}
+		return true;
+	}
+	
+	/**
+	 * Checks if two classes match each other, e.g. via super class or interface
+	 * @param foundClass	the class to look for
+	 * @param givenClass	the specific class from which every interface, super class and outer class has to be checked
+	 * @return				true, if they match, else false
+	 */
+	private boolean isAllowedClass(SootClass foundClass, SootClass givenClass) {
+		if (foundClass.equals(givenClass))				//if they match
+			return true;
+		if (givenClass.hasOuterClass()) {
+			boolean outerTrue=isAllowedClass(foundClass, givenClass.getOuterClass());
+			if (outerTrue)								//Check its outer class
+				return true;
+		}
+		if (givenClass.hasSuperclass()) {
+			boolean superTrue=isAllowedClass(foundClass, givenClass.getSuperclass());
+			if (superTrue)								//Check its super class 
+				return true;
+		}
+		Iterator<SootClass> interfaces = givenClass.getInterfaces().iterator();
+		while (interfaces.hasNext()) {					//Check every interface
+			SootClass inter=interfaces.next();
+			boolean interfaceTrue=isAllowedClass(foundClass, inter);
+			if (interfaceTrue)
+				return true;
+		}
+		return false;
+	}
 	
 	/**
 	 * Deletes all nop-statements used as a placeholder for jumps
@@ -2012,24 +2012,7 @@ public class JavaMethodSource implements MethodSource {
 			return ((JCExpressionStatement)node).expr;
 		return node;
 	}
-	
-	 /**
-	  * Runs through all interfaces and its superinterfaces and checks if an interface matches the given class
-	  * @param interfaces	list of interfaces
-	  * @param clazz		class to compare with
-	  * @return				true, if class is in one of the interfaces or its superinterfaces, else return false
-	  */
-	private boolean isInInterfaces(Chain<SootClass> interfaces, SootClass clazz) {
-		if (interfaces.contains(clazz))
-			return true;
-		else {
-			for (SootClass c:interfaces) {
-				if (c.getInterfaces() != null && isInInterfaces(c.getInterfaces(),clazz))
-					return true;
-			}
-			return false;
-		}
-	}
+
 	
 	/**
 	 * Adds the valueOf method to the enum class

@@ -3,6 +3,7 @@ package soot.java;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.Iterator;
 import java.util.List;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -132,12 +133,17 @@ public class JavaUtil {
 			if (substring.contains("$") && substring.substring(substring.lastIndexOf('$')+1, substring.length()).equals(klass))
 				return ref.toString();
 		}
-		for (SootClass clazz:Scene.v().getClasses()) {							//An inner class of the current class is searched for
+		String innerClass = sc.getName()+"$"+klass;
+		if (Scene.v().containsClass(innerClass))
+			return innerClass;
+	/*	Iterator<SootClass> iter = Scene.v().getClasses().snapshotIterator();
+		while (iter.hasNext()) {
+			SootClass clazz=iter.next();						//An inner class of the current class is searched for
 			String innerClass = sc.getName()+"$"+klass;
 			if (clazz.getName().equals(innerClass))
 				return clazz.toString();
 		}
-		String newClass = addPackageName(klass);								//Look in standard package for the class
+	*/	String newClass = addPackageName(klass);								//Look in standard package for the class
 		if (newClass != null)
 			return newClass;
 		SootClass phantomClass = new SootClass(klass);
@@ -169,12 +175,17 @@ public class JavaUtil {
 			if (substring.equals(klass))
 				return true;
 		}
-		for (SootClass clazz:Scene.v().getClasses()) {
+		String innerClass = sc.getName()+"$"+klass;
+		if (Scene.v().containsClass(innerClass))
+			return true;
+	/*	Iterator<SootClass> iter = Scene.v().getClasses().snapshotIterator();
+		while (iter.hasNext()) {
+			SootClass clazz=iter.next();
 			String innerclass = sc.getName()+"$"+klass;
 			if (clazz.getName().equals(innerclass))
 				return true;
 		}
-		if (addPackageName(klass) != null)
+	*/	if (addPackageName(klass) != null)
 			return true;
 		return false;
 	}
@@ -321,6 +332,18 @@ public class JavaUtil {
 		}
 		if (node instanceof JCClassDecl) {										//Add inner class, anonymous class, or enum class
 			SootClass innerClass = new SootClass(sc.getName()+"$"+((JCClassDecl)node).name.toString());
+			Iterator<Type> iter = deps.typesToSignature.iterator();
+			List<Type> remove=new ArrayList<>();
+			List<Type> add=new ArrayList<>();
+			while (iter.hasNext()) {
+				Type type=iter.next();
+				if (type.toString().endsWith(innerClass.toString().replace('$', '.')) && !type.toString().equals(innerClass.toString().replace('$', '.'))) {
+					remove.add(type);
+					add.add(RefType.v(innerClass));
+				}
+			}
+			deps.typesToSignature.removeAll(remove);
+			deps.typesToSignature.addAll(add);
 			innerClass.addTag(sc.getTag("SourceFileTag"));						//Add tag for source file, inner classes and outer classes
 			OuterClassTag outerTag = new OuterClassTag(sc, sc.getName(), false);
 			innerClass.addTag(outerTag);
