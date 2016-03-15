@@ -4,6 +4,7 @@ import static org.junit.Assert.fail;
 
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -25,10 +26,10 @@ public class OldTests {
 		// build class via soot
 		buildClass();
 		// load class
-		//Class<?> klass = prepareClass();
+		Class<?> klass = prepareClass();
 		// invoke test method
-		//Method m = klass.getMethod("test", new Class<?>[0]);
-		//Object result = m.invoke(klass.newInstance(), new Object[0]);
+		Method m = klass.getMethod("main", new Class<?>[0]);
+		m.invoke(null, null);
 	}
 	
 	@After
@@ -47,8 +48,7 @@ public class OldTests {
 	}
 	
 	private String getTarget() {
-		String path = this.getClass().getSimpleName();
-		path = path.substring(0, path.length()-4);
+		String path = "TODO";
 		return path;
 	}
 	

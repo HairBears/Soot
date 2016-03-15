@@ -8,28 +8,28 @@ import soot.java.ArithmeticTest;
 
 @RunWith(Suite.class)
 @SuiteClasses({
-	ArithmeticTest.class,
-	StringOperationsTest.class,
-	BoolsTest.class,
-	ConditionTest.class,
-	LoopTest.class,
-	ArrayTest.class,
-	RecursionTest.class,
-	VisibilityTest.class,
-	UnusedTest.class,
-	TernaryTest.class,
-	StackOverflowErrorTest.class,
-	InterfacesTest.class,
-	SwitchStuffTest.class
-//	,Test14.class
-//	,Test15.class
-//	,Test16.class
-//	,Test17.class
-//	,Test18.class
-//	,Test19.class
-//	,Test20.class
-//	,Test21.class
-//	,Test22.class
+	ArithmeticTest.class
+	,StringOperationsTest.class
+	,BoolsTest.class
+	,ConditionTest.class
+	,LoopTest.class
+	,ArrayTest.class
+	,RecursionTest.class
+	,VisibilityTest.class
+	,UnusedTest.class
+	,TernaryTest.class
+	,StackOverflowErrorTest.class
+	,InterfacesTest.class
+	,SwitchStuffTest.class
+	,TryCatch1Test.class
+	,SwitchFailTest.class
+	,TryCatch2Test.class
+	,InstanceOfTest.class
+//	,Test18Test.class
+//	,Test19Test.class
+//	,Test20Test.class
+//	,Test21Test.class
+//	,Test22Test.class
 })
 public class AllTests {
 
