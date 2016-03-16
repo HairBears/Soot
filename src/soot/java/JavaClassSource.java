@@ -91,7 +91,7 @@ public class JavaClassSource extends ClassSource {
 		}
 		for (int i=0; i<classList.size(); i++) {
 			SootClass currentClass;
-			if (classList.get(i).name.toString().equals(sc.toString()))
+			if (sc.toString().endsWith(classList.get(i).name.toString()))
 				currentClass = sc;
 			else
 				currentClass = Scene.v().getSootClass(classList.get(i).name.toString());

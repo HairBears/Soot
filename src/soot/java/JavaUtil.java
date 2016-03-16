@@ -103,8 +103,13 @@ public class JavaUtil {
 			String standLib = addPackageName(node.toString());
 			if (standLib != null)
 				return RefType.v(standLib);
+			if (Scene.v().containsClass(node.toString()))
+				return RefType.v(node.toString());
 			String packageName = getPackage((JCIdent)((JCFieldAccess)node).selected, deps, sc);
-			return RefType.v(packageName + "$" + ((JCFieldAccess)node).name);
+			if (Scene.v().containsClass(packageName + "." + ((JCFieldAccess)node).name))
+				return RefType.v(packageName + "." + ((JCFieldAccess)node).name);
+			else
+				return RefType.v(packageName + "$" + ((JCFieldAccess)node).name);
 		}
 		else
 			throw new AssertionError("Unknown type " + node.toString());
@@ -132,18 +137,13 @@ public class JavaUtil {
 				return ref.toString();
 			if (substring.contains("$") && substring.substring(substring.lastIndexOf('$')+1, substring.length()).equals(klass))
 				return ref.toString();
+			if (ref.toString().endsWith('$'+klass))
+				return ref.toString();
 		}
 		String innerClass = sc.getName()+"$"+klass;
 		if (Scene.v().containsClass(innerClass))
 			return innerClass;
-	/*	Iterator<SootClass> iter = Scene.v().getClasses().snapshotIterator();
-		while (iter.hasNext()) {
-			SootClass clazz=iter.next();						//An inner class of the current class is searched for
-			String innerClass = sc.getName()+"$"+klass;
-			if (clazz.getName().equals(innerClass))
-				return clazz.toString();
-		}
-	*/	String newClass = addPackageName(klass);								//Look in standard package for the class
+	String newClass = addPackageName(klass);								//Look in standard package for the class
 		if (newClass != null)
 			return newClass;
 		SootClass phantomClass = new SootClass(klass);
@@ -174,18 +174,15 @@ public class JavaUtil {
 			String substring = ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
 			if (substring.equals(klass))
 				return true;
+			if (substring.contains("$") && substring.substring(substring.lastIndexOf('$')+1, substring.length()).equals(klass))
+				return true;
+			if (ref.toString().endsWith('$'+klass))
+				return true;
 		}
 		String innerClass = sc.getName()+"$"+klass;
 		if (Scene.v().containsClass(innerClass))
 			return true;
-	/*	Iterator<SootClass> iter = Scene.v().getClasses().snapshotIterator();
-		while (iter.hasNext()) {
-			SootClass clazz=iter.next();
-			String innerclass = sc.getName()+"$"+klass;
-			if (clazz.getName().equals(innerclass))
-				return true;
-		}
-	*/	if (addPackageName(klass) != null)
+	if (addPackageName(klass) != null)
 			return true;
 		return false;
 	}
@@ -301,6 +298,8 @@ public class JavaUtil {
 				parameterListTree = parameterListTree.tail;
 			}
 			String methodName = method.name.toString();
+			if (methodName.equals("<init>") && sc.isInnerClass())
+				parameterTypes.add(RefType.v(sc.getOuterClass()));
 			Type returnType;
 			if (methodName.equals("<init>"))									//Add return type
 				returnType = VoidType.v();
@@ -384,13 +383,13 @@ public class JavaUtil {
 					interfaceList = interfaceList.tail;
 				}
 			}
-			if (!Modifier.isEnum(innerClass.getModifiers())) {					//Add needed field
+			if (!Modifier.isEnum(innerClass.getModifiers()) && !innerClass.isInterface()) {					//Add needed field
 				String fieldName = "this$0";
 				Type fieldType = RefType.v(sc);
 				int fieldMods = Modifier.FINAL;
 				SootField field = new SootField(fieldName, fieldType, fieldMods);
 				innerClass.addField(field);
-			} else {
+			} else if (Modifier.isEnum(innerClass.getModifiers())){
 				String fieldName = "ENUM$VALUES";
 				Type fieldType = ArrayType.v(RefType.v(innerClass), 1);
 				int fieldMods = Modifier.FINAL | Modifier.STATIC | Modifier.PRIVATE;
@@ -410,7 +409,7 @@ public class JavaUtil {
 			}
 			else
 				parameterTypes.add(RefType.v(sc));								//If class has no constructor, add a standard one
-			if (!innerClass.declaresMethod("<init>", parameterTypes)) {
+			if (!innerClass.declaresMethod("<init>", parameterTypes) && !innerClass.isInterface()) {
 				String methodname = "<init>";
 				
 				Type returnType = VoidType.v();
@@ -431,7 +430,7 @@ public class JavaUtil {
 				innerClass.addMethod(new SootMethod("valueOf", parameterList2, RefType.v(innerClass), Modifier.PUBLIC|Modifier.STATIC));
 				innerClass.getMethod("valueOf", parameterList2, RefType.v(innerClass)).setSource(new JavaMethodSource(deps, newFieldList));
 			}
-			if (!sc.declaresMethod("<clinit>", parameterTypes)) {				//if class has static fields, add a clinit-constructor
+			if (!sc.declaresMethod("<clinit>", parameterTypes) && !innerClass.isInterface()) {				//if class has static fields, add a clinit-constructor
 				boolean hasStaticField = false;
 				Object[] list = sc.getFields().toArray();
 				for (int i=0; i<list.length; i++)

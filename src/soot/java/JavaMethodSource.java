@@ -246,6 +246,13 @@ public class JavaMethodSource implements MethodSource {
 			return addBreak((JCBreak)node);
 		if (node instanceof JCThrow)
 			return addThrow((JCThrow) node);
+		if (node instanceof JCClassDecl) {
+			ArrayList<JCTree> newFieldList=new ArrayList<>();
+			JavaUtil.getHead(node, deps, thisMethod.getDeclaringClass(), newFieldList);
+			Unit nop = Jimple.v().newNopStmt();
+			units.add(nop);
+			return nop;
+		}
 		if (node == null) {
 			Unit nop = Jimple.v().newNopStmt();
 			units.add(nop);
@@ -343,6 +350,12 @@ public class JavaMethodSource implements MethodSource {
 			}
 			parameterList.add(arrayLoc);
 			parameterTypes.add(arrayLoc.getType());
+		}
+		if (method.parameterTypes().size()>parameterTypes.size() && method.name().equals("<init>")) {
+			parameterTypes.add(RefType.v(thisMethod.getDeclaringClass().getOuterClass()));
+			Value val=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), thisMethod.getDeclaringClass().getFieldByName("this$0").makeRef());
+			val=checkForExprChain(val);
+			parameterList.add(val);
 		}
 		if (!method.parameterTypes().equals(parameterTypes)) {								//if parameterized types are used, it needs a value as a class instead of the primitive type
 			for (int i=0; i<method.parameterTypes().size(); i++) {							//e.g. ArrayList<Integer> a; a.add(3); => Integer b = Integer.valueOf(3); a.add(b);
@@ -765,8 +778,61 @@ public class JavaMethodSource implements MethodSource {
 	private Value getLocal(JCIdent node) {
 		SootClass thisClass = thisMethod.getDeclaringClass();
 		if (JavaUtil.isPackageName(node, deps, thisClass)) {				//If e.g. "A.this.b" is called, "this" needs to be ignored, but A still needs to be found
-			return new JimpleLocal("name", RefType.v(node.toString()));		//so pack it in an local, which is only used to read the class
+				ArrayList<SootClass> innerClassList = new ArrayList<>();
+				String packageName=JavaUtil.getPackage(node, deps, thisClass);
+				searchClass(packageName, thisClass, innerClassList);
+				if (!innerClassList.isEmpty()) {
+					Type type=RefType.v(innerClassList.remove(0).getOuterClass());
+					SootField thisField = thisClass.getField("this$0", type);
+					Value firstField=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), thisField.makeRef());
+					Local firstLoc=localGenerator.generateLocal(type);
+					Unit assign=Jimple.v().newAssignStmt(firstLoc, firstField);		//Get the outer class via the inner class' field
+					Local prevLocal=firstLoc;
+					units.add(assign);
+					while (!innerClassList.isEmpty()) {
+						SootClass sc=innerClassList.remove(0);
+						SootField outerClassField=sc.getFieldByName("this$0");
+						SootClass outerClass=sc.getOuterClass();
+						SootMethod newMethod;
+						List<Type> parameterTypes=new ArrayList<>();
+						parameterTypes.add(RefType.v(sc));
+						if (sc.declaresMethod("access$0", parameterTypes)) {
+							newMethod=sc.getMethod("access$0", parameterTypes);
+						}
+						else
+						{
+							newMethod=new SootMethod("access$0", parameterTypes, outerClassField.getType(), Modifier.STATIC);
+							sc.addMethod(newMethod);								//An additional method to get it's outer class is necesary
+							JimpleBody body=Jimple.v().newBody(newMethod);
+							Chain<Local> localChain=body.getLocals();
+							Chain<Unit> unitChain=body.getUnits();
+							Local loc=new JimpleLocal("parameter", RefType.v(sc));
+							localChain.add(loc);
+							Unit ident=Jimple.v().newIdentityStmt(loc, Jimple.v().newParameterRef(RefType.v(sc), 0));
+							unitChain.add(ident);
+							
+							Local loc2=new JimpleLocal("field", RefType.v(outerClass));		//TODO local generator?
+							localChain.add(loc2);
+							Value fieldAccess=Jimple.v().newInstanceFieldRef(loc, outerClassField.makeRef());
+							Unit assignField=Jimple.v().newAssignStmt(loc2, fieldAccess);
+							unitChain.add(assignField);
+							Unit returnUnit=Jimple.v().newRetStmt(loc2);
+							unitChain.add(returnUnit);
+							newMethod.setActiveBody(body);
+						}
+						Local loc3=localGenerator.generateLocal(RefType.v(outerClass));
+						List<Value> parameter=new ArrayList<>();
+						parameter.add(prevLocal);
+						Value sinvoke=Jimple.v().newStaticInvokeExpr(newMethod.makeRef(), parameter);
+						Unit assign2=Jimple.v().newAssignStmt(loc3, sinvoke);
+						units.add(assign2);
+						prevLocal=loc3;
+					}
+					return prevLocal;
+				}
+				
 		}
+		
 		if (locals.containsKey(node.toString()))							//Variable in this method
 			return locals.get(node.toString());
 		if (thisClass.declaresFieldByName(node.toString())) {
@@ -808,7 +874,7 @@ public class JavaMethodSource implements MethodSource {
 					Unit ident=Jimple.v().newIdentityStmt(loc, Jimple.v().newParameterRef(RefType.v(sc), 0));
 					unitChain.add(ident);
 					
-					Local loc2=new JimpleLocal("field", RefType.v(outerClass));
+					Local loc2=new JimpleLocal("field", RefType.v(outerClass));		//TODO local generator?
 					localChain.add(loc2);
 					Value fieldAccess=Jimple.v().newInstanceFieldRef(loc, outerClassField.makeRef());
 					Unit assignField=Jimple.v().newAssignStmt(loc2, fieldAccess);
@@ -831,6 +897,21 @@ public class JavaMethodSource implements MethodSource {
 			return field;
 		}
 		throw new AssertionError("Unknown local " + node.toString());
+	}
+	
+	/**
+	 * Searches for a call-order to get from the given class to the searched class
+	 * @param node				the searched class
+	 * @param sc				the given class
+	 * @param innerClassList	list to add the order of calls
+	 */
+	private void searchClass(String node, SootClass sc, ArrayList<SootClass> innerClassList) {
+		if (sc.equals(Scene.v().getSootClass(node)))
+			return;
+		if (sc.hasOuterClass()) {
+			innerClassList.add(sc);
+			searchClass(node, sc.getOuterClass(), innerClassList);
+		}
 	}
 	
 	/**
@@ -878,6 +959,60 @@ public class JavaMethodSource implements MethodSource {
 	 * @return		translated field access
 	 */
 	private Value getFieldAccess(JCFieldAccess node) {
+		if (Scene.v().containsClass(node.toString().replace('.', '$'))){
+			SootClass thisClass=thisMethod.getDeclaringClass();
+			ArrayList<SootClass> innerClassList = new ArrayList<>();
+			searchClass(node.toString().replace('.', '$'), thisClass, innerClassList);
+			if (!innerClassList.isEmpty()) {
+				Type type=RefType.v(innerClassList.remove(0).getOuterClass());
+				SootField thisField = thisClass.getField("this$0", type);
+				Value firstField=Jimple.v().newInstanceFieldRef(locals.get("thisLocal"), thisField.makeRef());
+				Local firstLoc=localGenerator.generateLocal(type);
+				Unit assign=Jimple.v().newAssignStmt(firstLoc, firstField);		//Get the outer class via the inner class' field
+				Local prevLocal=firstLoc;
+				units.add(assign);
+				while (!innerClassList.isEmpty()) {
+					SootClass sc=innerClassList.remove(0);
+					SootField outerClassField=sc.getFieldByName("this$0");
+					SootClass outerClass=sc.getOuterClass();
+					SootMethod newMethod;
+					List<Type> parameterTypes=new ArrayList<>();
+					parameterTypes.add(RefType.v(sc));
+					if (sc.declaresMethod("access$0", parameterTypes)) {
+						newMethod=sc.getMethod("access$0", parameterTypes);
+					}
+					else
+					{
+						newMethod=new SootMethod("access$0", parameterTypes, outerClassField.getType(), Modifier.STATIC);
+						sc.addMethod(newMethod);								//An additional method to get it's outer class is necesary
+						JimpleBody body=Jimple.v().newBody(newMethod);
+						Chain<Local> localChain=body.getLocals();
+						Chain<Unit> unitChain=body.getUnits();
+						Local loc=new JimpleLocal("parameter", RefType.v(sc));
+						localChain.add(loc);
+						Unit ident=Jimple.v().newIdentityStmt(loc, Jimple.v().newParameterRef(RefType.v(sc), 0));
+						unitChain.add(ident);
+						
+						Local loc2=new JimpleLocal("field", RefType.v(outerClass));		//TODO local generator?
+						localChain.add(loc2);
+						Value fieldAccess=Jimple.v().newInstanceFieldRef(loc, outerClassField.makeRef());
+						Unit assignField=Jimple.v().newAssignStmt(loc2, fieldAccess);
+						unitChain.add(assignField);
+						Unit returnUnit=Jimple.v().newRetStmt(loc2);
+						unitChain.add(returnUnit);
+						newMethod.setActiveBody(body);
+					}
+					Local loc3=localGenerator.generateLocal(RefType.v(outerClass));
+					List<Value> parameter=new ArrayList<>();
+					parameter.add(prevLocal);
+					Value sinvoke=Jimple.v().newStaticInvokeExpr(newMethod.makeRef(), parameter);
+					Unit assign2=Jimple.v().newAssignStmt(loc3, sinvoke);
+					units.add(assign2);
+					prevLocal=loc3;
+				}
+				return prevLocal;
+			}
+		}
 		Value loc;															//Field access via class name, static
 		if (node.selected instanceof JCIdent && JavaUtil.isPackageName((JCIdent)node.selected, deps, thisMethod.getDeclaringClass())) {
 			if (node.name.toString().equals("super"))
@@ -913,6 +1048,8 @@ public class JavaMethodSource implements MethodSource {
 				SootField field = clazz.getFieldByName(node.name.toString());
 				loc = Jimple.v().newStaticFieldRef(field.makeRef());
 			}
+			else if (node.name.toString().equals("this"))
+				return val;
 			else
 			{
 				SootClass clazz = Scene.v().getSootClass(val.getType().toString());
@@ -951,6 +1088,14 @@ public class JavaMethodSource implements MethodSource {
 				Unit assignOuterClass = Jimple.v().newAssignStmt(lhs, paramLocal);
 				units.add(assignOuterClass);
 			}
+		}
+		if (thisMethod.getParameterCount()>parameterCount) {						//If an additional parameter is added for an outer class
+			Type type = thisMethod.getParameterTypes().get(parameterCount);
+			Value parameter = Jimple.v().newParameterRef(type, parameterCount++);
+			Local paramLocal = localGenerator.generateLocal(type);
+			Unit assign = Jimple.v().newIdentityStmt(paramLocal, parameter);
+			locals.put(paramLocal.getName(), paramLocal);
+			units.add(assign);
 		}
 		if (thisMethod.getName().equals("<init>")) {								//Call constructor of the super class, if "super" is used, use parameter
 			JCTree node;
@@ -1406,6 +1551,7 @@ public class JavaMethodSource implements MethodSource {
 	private Unit addThrow (JCThrow node) {
 		Value val = getValue(node.expr);
 		if (node.expr instanceof JCNewClass) {
+			queue.remove(queue.size()-1);
 			Local loc = localGenerator.generateLocal(val.getType());
 			Unit assign = Jimple.v().newAssignStmt(loc, val);
 			units.add(assign);
@@ -1557,10 +1703,16 @@ public class JavaMethodSource implements MethodSource {
 		Value right = getValue(node.rhs);
 		if (!(var instanceof Local))
 			right = checkForExprChain(right);
+		if (node.rhs instanceof JCNewClass) {
+			newClasslocal = (Local)right;
+			if (!queue.isEmpty()) {
+				JCTree tree = queue.get(0);
+				queue.remove(tree);
+				getUnit(tree);
+			}
+		}
 		Unit assign = Jimple.v().newAssignStmt(var, right);
 		units.add(assign);
-		if (node.rhs instanceof JCNewClass)
-			newClasslocal = (Local)var;
 		return assign;
 	}
 
