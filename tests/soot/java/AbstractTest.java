@@ -53,7 +53,7 @@ public abstract class AbstractTest {
 		return path;
 	}
 	
-	private Class<?> prepareClass() throws MalformedURLException {
+	protected Class<?> prepareClass() throws MalformedURLException {
 		ClassLoader c = prepareClassLoader();
 		Class<?> klass = null;
 		// load class
@@ -83,7 +83,7 @@ public abstract class AbstractTest {
 		return c;
 	}
 	
-	private void buildClass() {
+	protected void buildClass() {
 			String rtJar = System.getProperty("java.home")+File.separator+"lib"+File.separator+"rt.jar";
 			G.reset();
 			Main.main(new String[] {

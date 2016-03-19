@@ -1,14 +1,11 @@
 package soot.java.target;
 
-import soot.java.target.Nested.Inter;
-
-class Nested {
 	
-	public interface Inter {
+	interface Inter {
 		public boolean test();
 	}
 	
-}
+
 
 public class Interfaces implements Inter {
 
