@@ -1,6 +1,7 @@
 package soot.java;
 
 import java.io.IOException;
+
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Iterator;
@@ -45,6 +46,13 @@ import soot.tagkit.EnclosingMethodTag;
 import soot.tagkit.InnerClassTag;
 import soot.tagkit.OuterClassTag;
 
+/**
+ * Provides functions that are needed in both, the class source and the method source
+ * @author Martin Herbers
+ * @author Florian Krause
+ * @author Joachim Katholing
+ *
+ */
 public class JavaUtil {
 
 	/**
@@ -53,7 +61,7 @@ public class JavaUtil {
 	 * @param deps	imports of the parsed class
 	 * @param sc	current class, used for package and inner classes
 	 * @return		Jimple-type matching the type of the node
-	 * @throws		AssertionError
+	 * @throws		AssertionError	if it's an unknown type
 	 */
 	public static Type getType (JCTree node, Dependencies deps, SootClass sc) {
 		if (node instanceof JCPrimitiveTypeTree) {								//Primitive types
@@ -92,11 +100,11 @@ public class JavaUtil {
 			return ArrayType.v(type, dimension);
 		}
 		if (node instanceof JCIdent) {											//Class
-			String packageName = getPackage((JCIdent)node, deps, sc);
+			String packageName = getPackage(node.toString(), deps, sc);
 			return RefType.v(packageName);
 		}
 		if (node instanceof JCTypeApply) {										//Parameterized class, e.g. List<Integer>
-			String packageName = getPackage((JCIdent)((JCTypeApply)node).clazz, deps, sc);
+			String packageName = getPackage(((JCTypeApply)node).clazz.toString(), deps, sc);
 			return RefType.v(packageName);
 		}
 		if (node instanceof JCFieldAccess) {									//Inner class
@@ -105,7 +113,7 @@ public class JavaUtil {
 				return RefType.v(standLib);
 			if (Scene.v().containsClass(node.toString()))
 				return RefType.v(node.toString());
-			String packageName = getPackage((JCIdent)((JCFieldAccess)node).selected, deps, sc);
+			String packageName = getPackage(((JCFieldAccess)node).selected.toString(), deps, sc);
 			if (Scene.v().containsClass(packageName + "." + ((JCFieldAccess)node).name))
 				return RefType.v(packageName + "." + ((JCFieldAccess)node).name);
 			else
@@ -121,75 +129,56 @@ public class JavaUtil {
 	 * @param deps	imports of the parsed class
 	 * @param sc	current class, used for package and inner classes
 	 * @return		name of matching import-package
-	 * @throws		AssertionError
 	 */
-	public static String getPackage(JCIdent node, Dependencies deps, SootClass sc) {
-		String klass;
-		if (node.toString().contains("."))
-			klass = node.toString().replace(".", "$");							//If searched class is an inner class, create matching class name
-		else
-			klass = node.toString();
-		if (sc.toString().contains("$") && sc.toString().substring(sc.toString().lastIndexOf('$')+1, sc.toString().length()).equals(klass))
-			return sc.toString();												//Current class is an inner class and searches for itself
-		for (Type ref:deps.typesToSignature) {									//Search in imports for a matching class
-			String substring = ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
-			if (substring.equals(klass))
-				return ref.toString();
-			if (substring.contains("$") && substring.substring(substring.lastIndexOf('$')+1, substring.length()).equals(klass))
-				return ref.toString();
-			if (ref.toString().endsWith('$'+klass))
-				return ref.toString();
+	public static String getPackage(String node, Dependencies deps, SootClass sc) {
+		if (sc.getName().endsWith(node)) {
+			int index = sc.toString().lastIndexOf(node) - 1;
+			if (index == -1 || sc.toString().charAt(index) == '$' || sc.toString().charAt(index) == '.')
+				return sc.toString();
 		}
-		String innerClass = sc.getName()+"$"+klass;
-		if (Scene.v().containsClass(innerClass))
-			return innerClass;
-	String newClass = addPackageName(klass);								//Look in standard package for the class
+		for (Type ref: deps.typesToSignature) {
+			if (ref.toString().endsWith(node)) {
+				int index = ref.toString().lastIndexOf(node) - 1;
+				if (index == -1 || ref.toString().charAt(index) == '$' || ref.toString().charAt(index) == '.')
+					return ref.toString();
+			}
+		}
+		String newClass = addPackageName(node);								//Look in standard package for the class
 		if (newClass != null)
 			return newClass;
-		SootClass phantomClass = new SootClass(klass);
-		phantomClass.setPhantom(true);							//TODO delete?
+		SootClass phantomClass = new SootClass(node);
+		phantomClass.setPhantom(true);							
 		Scene.v().addClass(phantomClass);
 		Scene.v().getApplicationClasses().add(phantomClass);
-		return klass;
-	//	throw new AssertionError("Unknown class " + klass);
+		return node;
 	}
 
 	/**
 	 * Checks if the name in this node is a name of a class
 	 * @param node	node containing a variable or class name
 	 * @param deps	imports of parsed class
+	 * @param sc	current soot class
 	 * @return		true if its a class name, else false
 	 */
-	public static boolean isPackageName(JCIdent node, Dependencies deps, SootClass sc) {
-		String klass;															//Method build similar to getPackage
-		if (node.toString().contains("."))
-			klass = node.toString().replace(".", "$");
-		else
-			klass = node.toString();
-		if (sc.toString().contains("$") && sc.toString().substring(sc.toString().lastIndexOf('$')+1, sc.toString().length()).equals(klass))
+	public static boolean isPackageName(String node, Dependencies deps, SootClass sc) {
+		if (sc.getName().endsWith(node))
 			return true;
-		if (sc.toString().equals(klass))
-			return true;
-		for (Type ref:deps.typesToSignature) {
-			String substring = ref.toString().substring(ref.toString().lastIndexOf('.')+1, ref.toString().length());
-			if (substring.equals(klass))
-				return true;
-			if (substring.contains("$") && substring.substring(substring.lastIndexOf('$')+1, substring.length()).equals(klass))
-				return true;
-			if (ref.toString().endsWith('$'+klass))
-				return true;
+		for (Type ref: deps.typesToSignature) {
+			if (ref.toString().endsWith(node)) {
+				int index = ref.toString().lastIndexOf(node) - 1; 
+				if (index == -1 || ref.toString().charAt(index) == '$' || ref.toString().charAt(index) == '.')
+					return true;
+			}
 		}
-		String innerClass = sc.getName()+"$"+klass;
-		if (Scene.v().containsClass(innerClass))
-			return true;
-	if (addPackageName(klass) != null)
+		String newClass = addPackageName(node);								//Look in standard package for the class
+		if (newClass != null)
 			return true;
 		return false;
-	}
+		}
 	
 	/**
 	 * Returns the complete name of a standard-package-class and adds it to the basic classes if necessary
-	 * E.g. String -> java.lang.String
+	 * E.g. String to java.lang.String
 	 * @param className		name of a class in a standard package
 	 * @return				name with package-name
 	 */
@@ -207,11 +196,11 @@ public class JavaUtil {
 			while (entries.hasMoreElements()) {									//Check all classes in rt.jar for a matching name 
 				JarEntry entry = entries.nextElement();
 				if (entry.toString().contains(".class")) {
-					String substring = entry.toString().substring(entry.toString().lastIndexOf("/")+1, entry.toString().lastIndexOf("."));
+					String substring = entry.toString().substring(entry.toString().lastIndexOf("/") + 1, entry.toString().lastIndexOf("."));
 					if (substring.equals(className) && entry.toString().replace('/', '.').contains(packagePart))
 						returnString = entry.toString().substring(0, entry.toString().lastIndexOf(".")).replace('/', '.');
 					else if (substring.contains("$")) {
-						String subSubstring = substring.substring(substring.lastIndexOf('$')+1);
+						String subSubstring = substring.substring(substring.lastIndexOf('$') + 1);
 						if (subSubstring.equals(className)&& entry.toString().replace('/', '.').contains(packagePart))
 							returnString = entry.toString().substring(0, entry.toString().lastIndexOf(".")).replace('/', '.');
 					}
@@ -285,7 +274,7 @@ public class JavaUtil {
 			com.sun.tools.javac.util.List<JCExpression> throwListTree = method.thrown;
 			ArrayList<SootClass> throwList = new ArrayList<>();
 			while (throwListTree.head != null) {									//Add "throws"
-				String packageName = JavaUtil.getPackage((JCIdent)throwListTree.head, deps, sc);
+				String packageName = JavaUtil.getPackage(throwListTree.head.toString(), deps, sc);
 				SootClass thrownClass = Scene.v().getSootClass(packageName);
 				throwList.add(thrownClass);
 				throwListTree = throwListTree.tail;
@@ -358,7 +347,7 @@ public class JavaUtil {
 			}
 			innerClass.setModifiers(modifier);
 			if (((JCClassDecl)node).extending!=null) {							//Add super class
-				String packageName = JavaUtil.getPackage((JCIdent)((JCClassDecl)node).extending, deps, sc);
+				String packageName = JavaUtil.getPackage(((JCClassDecl)node).extending.toString(), deps, sc);
 				SootClass superClass = Scene.v().getSootClass(packageName);
 				innerClass.setSuperclass(superClass);
 			}
@@ -375,9 +364,9 @@ public class JavaUtil {
 				while (interfaceList.head != null) {
 					String packageName;
 					if (interfaceList.head instanceof JCTypeApply) 
-						packageName = JavaUtil.getPackage((JCIdent)((JCTypeApply)interfaceList.head).clazz, deps, sc);
+						packageName = JavaUtil.getPackage(((JCTypeApply)interfaceList.head).clazz.toString(), deps, sc);
 					else
-						packageName = JavaUtil.getPackage((JCIdent)interfaceList.head, deps, sc);
+						packageName = JavaUtil.getPackage(interfaceList.head.toString(), deps, sc);
 					SootClass interfaceClass = Scene.v().getSootClass(packageName);
 					innerClass.addInterface(interfaceClass);
 					interfaceList = interfaceList.tail;
