@@ -25,7 +25,14 @@ import soot.Type;
 import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
 import soot.tagkit.SourceFileTag;
-
+/**
+ * Fills the Soot class with method signatures, fields, and imports
+ * Translates the class signature, e.g. modifier and interfaces
+ * @author Martin Herbers
+ * @author Florian Krause
+ * @author Joachim Katholing
+ *
+ */
 public class JavaClassSource extends ClassSource {
 	
 	//Path to java class file
@@ -63,14 +70,14 @@ public class JavaClassSource extends ClassSource {
 		String pathToPackage = path.getPath().substring(0, path.getPath().lastIndexOf(File.separator)+1);
 		List<String> folder = SourceLocator.v().getClassesUnder(pathToPackage);
 		Dependencies deps = new Dependencies();
-		for (int i=0; i<folder.size(); i++)									//Add all classes in the same package as dependencies
-			deps.typesToSignature.add(RefType.v(folder.get(i)));
+		for (int i = 0; i < folder.size(); i++)									//Add all classes in the same package as dependencies
+			deps.typesToSignature.add(RefType.v(sc.getPackageName()+"." + folder.get(i)));
 		com.sun.tools.javac.util.List<JCTree> classDecl = jccu.defs;
 		while (classDecl.head instanceof JCImport) {						//Add all imports as dependencies
 			if (((JCFieldAccess)((JCImport)classDecl.head).qualid).name.toString().equals("*")) {
-				String pathToStar = SourceLocator.v().classPath().get(0)+File.separator+((JCFieldAccess)((JCImport)classDecl.head).qualid).selected.toString().replace(".", File.separator);
+				String pathToStar = SourceLocator.v().classPath().get(0) + File.separator+((JCFieldAccess)((JCImport)classDecl.head).qualid).selected.toString().replace(".", File.separator);
 				List<String> folderStar = SourceLocator.v().getClassesUnder(pathToStar);
-				for (int i=0; i<folderStar.size(); i++)
+				for (int i = 0; i < folderStar.size(); i++)
 					deps.typesToSignature.add(RefType.v(folderStar.get(i)));
 			}
 			else
@@ -79,6 +86,10 @@ public class JavaClassSource extends ClassSource {
 		}
 		ArrayList<JCClassDecl> classList = new ArrayList<>();
 		while (classDecl.head != null) {
+			if (classDecl.head instanceof JCSkip) {
+				classDecl = classDecl.tail;
+				continue;
+			}
 			classList.add((JCClassDecl)classDecl.head);
 			if (!((JCClassDecl)classDecl.head).name.toString().equals(sc.toString())) {
 				SootClass newClass = new SootClass(((JCClassDecl)classDecl.head).name.toString());
@@ -89,10 +100,15 @@ public class JavaClassSource extends ClassSource {
 			}
 			classDecl = classDecl.tail;
 		}
-		for (int i=0; i<classList.size(); i++) {
+		for (int i = 0; i < classList.size(); i++) {
 			SootClass currentClass;
-			if (classList.get(i).name.toString().equals(sc.toString()))
-				currentClass = sc;
+			if (sc.toString().endsWith(classList.get(i).name.toString())) {
+				int index = sc.toString().lastIndexOf(classList.get(i).name.toString()) - 1;
+				if (index == -1 || sc.toString().charAt(index) == '$' || sc.toString().charAt(index) == '.')
+					currentClass = sc;
+				else
+					currentClass = Scene.v().getSootClass(classList.get(i).name.toString());
+			}	
 			else
 				currentClass = Scene.v().getSootClass(classList.get(i).name.toString());
 			com.sun.tools.javac.util.List<JCTree> classBodyList = classList.get(i).defs;
@@ -102,7 +118,7 @@ public class JavaClassSource extends ClassSource {
 			if (classSig.extending != null){
 				String packageName;
 				if (classSig.extending instanceof JCIdent)
-					packageName = JavaUtil.getPackage((JCIdent)classSig.extending, deps, currentClass);
+					packageName = JavaUtil.getPackage(classSig.extending.toString(), deps, currentClass);
 				else
 					packageName = JavaUtil.getType(classSig.extending, deps, currentClass).toString();
 				SootClass superClass = Scene.v().getSootClass(packageName);
@@ -117,7 +133,7 @@ public class JavaClassSource extends ClassSource {
 				while (interfaceList.head != null) {
 					String packageName;
 					if (interfaceList.head instanceof JCIdent)
-						packageName = JavaUtil.getPackage((JCIdent)interfaceList.head, deps, currentClass);
+						packageName = JavaUtil.getPackage(interfaceList.head.toString(), deps, currentClass);
 					else
 						packageName = JavaUtil.getType(interfaceList.head, deps, currentClass).toString();
 					SootClass interfaceClass = Scene.v().getSootClass(packageName);
@@ -142,7 +158,7 @@ public class JavaClassSource extends ClassSource {
 			if (!currentClass.declaresMethod("<clinit>", parameterTypes)) {				//if class has static fields, add a clinit-constructor
 				boolean hasStaticField = false;
 				Object[] list = currentClass.getFields().toArray();
-				for (int j=0; j<list.length; j++)
+				for (int j = 0; j < list.length; j++)
 					hasStaticField |= ((SootField)list[j]).isStatic();
 				if (hasStaticField) {
 					String methodName = "<clinit>";
