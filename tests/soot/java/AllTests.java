@@ -19,19 +19,19 @@ import soot.java.ArithmeticTest;
 	,UnusedTest.class
 	,TernaryTest.class
 	,StackOverflowErrorTest.class
-//	,InterfacesTest.class
+	,InterfacesTest.class
 	,SwitchStuffTest.class
 	,TryCatch1Test.class
 	,SwitchFailTest.class
 	,TryCatch2Test.class
 	,InstanceOfTest.class
-//	,FinalTest.class
+	,FinalTest.class
 	,ParametersTest.class
-//	,Parameters2Test.class
-//	,Parameters3Test.class
+	,Parameters2Test.class
+	,Parameters3Test.class
 	,ThisTest.class
 	,StaticTest.class
-//	,ConstructorTest.class
+	,ConstructorTest.class
 })
 public class AllTests {
 

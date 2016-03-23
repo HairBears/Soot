@@ -71,7 +71,10 @@ public class JavaClassSource extends ClassSource {
 		List<String> folder = SourceLocator.v().getClassesUnder(pathToPackage);
 		Dependencies deps = new Dependencies();
 		for (int i = 0; i < folder.size(); i++)									//Add all classes in the same package as dependencies
-			deps.typesToSignature.add(RefType.v(sc.getPackageName()+"." + folder.get(i)));
+			if (sc.getPackageName().isEmpty())
+				deps.typesToSignature.add(RefType.v(folder.get(i)));
+			else
+				deps.typesToSignature.add(RefType.v(sc.getPackageName()+"." + folder.get(i)));
 		com.sun.tools.javac.util.List<JCTree> classDecl = jccu.defs;
 		while (classDecl.head instanceof JCImport) {						//Add all imports as dependencies
 			if (((JCFieldAccess)((JCImport)classDecl.head).qualid).name.toString().equals("*")) {

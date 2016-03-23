@@ -16,8 +16,10 @@ import com.sun.tools.javac.tree.JCTree.JCClassDecl;
 import com.sun.tools.javac.tree.JCTree.JCExpression;
 import com.sun.tools.javac.tree.JCTree.JCFieldAccess;
 import com.sun.tools.javac.tree.JCTree.JCIdent;
+import com.sun.tools.javac.tree.JCTree.JCLiteral;
 import com.sun.tools.javac.tree.JCTree.JCMethodDecl;
 import com.sun.tools.javac.tree.JCTree.JCModifiers;
+import com.sun.tools.javac.tree.JCTree.JCNewArray;
 import com.sun.tools.javac.tree.JCTree.JCPrimitiveTypeTree;
 import com.sun.tools.javac.tree.JCTree.JCTypeApply;
 import com.sun.tools.javac.tree.JCTree.JCVariableDecl;
@@ -32,6 +34,7 @@ import soot.IntType;
 import soot.IntegerType;
 import soot.LongType;
 import soot.Modifier;
+import soot.NullType;
 import soot.RefType;
 import soot.Scene;
 import soot.ShortType;
@@ -42,6 +45,13 @@ import soot.SourceLocator;
 import soot.Type;
 import soot.VoidType;
 import soot.javaToJimple.IInitialResolver.Dependencies;
+import soot.jimple.Constant;
+import soot.jimple.DoubleConstant;
+import soot.jimple.FloatConstant;
+import soot.jimple.IntConstant;
+import soot.jimple.LongConstant;
+import soot.jimple.NullConstant;
+import soot.jimple.StringConstant;
 import soot.tagkit.EnclosingMethodTag;
 import soot.tagkit.InnerClassTag;
 import soot.tagkit.OuterClassTag;
@@ -119,6 +129,15 @@ public class JavaUtil {
 			else
 				return RefType.v(packageName + "$" + ((JCFieldAccess)node).name);
 		}
+		if (node instanceof JCNewArray)
+			if (((JCNewArray)node).elems != null)
+				return getType(((JCNewArray)node).elems.head, deps, sc);
+			else
+				return getType(((JCNewArray) node).elemtype, deps, sc);
+		if (node instanceof JCLiteral)
+			return getConstant((JCLiteral)node).getType();
+		if (node==null)
+			return NullType.v();
 		else
 			throw new AssertionError("Unknown type " + node.toString());
 	}
@@ -260,6 +279,33 @@ public class JavaUtil {
 		else
 			throw new AssertionError("No primitive Type " + type.toString());
 	}
+	
+	/**
+	 * Translates number into a jimple-constant
+	 * @param node	node containing the value
+	 * @return		matching jimple-constant with value
+	 */
+	public static Constant getConstant(JCLiteral node) {
+		if (node.typetag.name().equals("INT"))
+			return IntConstant.v((int)node.value);
+		if (node.typetag.name().equals("LONG"))
+			return LongConstant.v((long)node.value);
+		if (node.typetag.name().equals("DOUBLE"))
+			return DoubleConstant.v((double)node.value);
+		if (node.typetag.name().equals("FLOAT"))
+			return FloatConstant.v((float)node.value);
+		if (node.typetag.name().equals("BOOLEAN"))
+			return IntConstant.v((int)node.value);
+		if (node.toString().charAt(0) == '"')
+			return StringConstant.v((String)node.value);
+		if (node.typetag.name().equals("BOT"))
+			return NullConstant.v();
+		if (node.typetag.name().equals("CHAR"))
+			return IntConstant.v((int)node.value);
+		else
+			throw new AssertionError("Unknown type of constant " + node.toString());
+	}
+	
 	
 	/**
 	 * Adds fields, methods and inner classes to a soot class
