@@ -174,6 +174,4 @@ public class JavaClassSource extends ClassSource {
 		}
 		return deps;
 	}
-	
-
 }

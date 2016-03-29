@@ -180,8 +180,11 @@ public class JavaUtil {
 	 * @return		true if its a class name, else false
 	 */
 	public static boolean isPackageName(String node, Dependencies deps, SootClass sc) {
-		if (sc.getName().endsWith(node))
-			return true;
+		if (sc.getName().endsWith(node)){
+			int index = sc.toString().lastIndexOf(node) - 1;
+			if (index == -1 || sc.toString().charAt(index) == '$' || sc.toString().charAt(index) == '.')
+				return true;
+		}
 		for (Type ref: deps.typesToSignature) {
 			if (ref.toString().endsWith(node)) {
 				int index = ref.toString().lastIndexOf(node) - 1; 
@@ -210,7 +213,7 @@ public class JavaUtil {
 		JarFile rt = null;
 		String returnString = null;
 		try {
-			rt = new JarFile(SourceLocator.v().classPath().get(2));
+			rt = new JarFile(SourceLocator.v().classPath().get(SourceLocator.v().classPath().size()-1));
 			Enumeration<JarEntry> entries = rt.entries();
 			while (entries.hasMoreElements()) {									//Check all classes in rt.jar for a matching name 
 				JarEntry entry = entries.nextElement();

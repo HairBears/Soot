@@ -17,6 +17,7 @@ import org.junit.rules.ExpectedException;
 
 import soot.G;
 import soot.Main;
+import soot.SourceLocator;
 
 public abstract class AbstractTest {
 	
@@ -87,13 +88,14 @@ public abstract class AbstractTest {
 			String rtJar = System.getProperty("java.home")+File.separator+"lib"+File.separator+"rt.jar";
 			G.reset();
 			Main.main(new String[] {
-				"-cp", getClassFolder()+File.pathSeparator+rtJar,
+				"-cp", ".",//getClassFolder()+File.pathSeparator+rtJar,
 				"-pp",
 				//"-debug-resolver",
 				"-f", "class",
 				"-validate",
+				"-allow-phantom-refs",
 				"-process-dir",
-				getTarget() + ".java"
+				getClassFolder()+File.separator+getTarget()+".java"//getTarget() + ".java"
 
 			});
 	}

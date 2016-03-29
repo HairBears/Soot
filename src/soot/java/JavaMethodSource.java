@@ -256,6 +256,9 @@ public class JavaMethodSource implements MethodSource {
 			units.add(nop);
 			return nop;
 		}
+		if (node instanceof JCBlock) {
+			return processBlock(node);
+		}
 		if (node == null) {
 			Unit nop = Jimple.v().newNopStmt();
 			units.add(nop);
@@ -767,18 +770,20 @@ public class JavaMethodSource implements MethodSource {
 		Unit nopBreak = Jimple.v().newNopStmt();
 		breakLoop.add(nopBreak);
 		Value key = getValue(node.selector);
-		Unit defaultTarget = null;
+		Unit defaultTarget = Jimple.v().newNopStmt();
 		com.sun.tools.javac.util.List<JCCase> cases = node.cases;
 		List<Unit> targets = new ArrayList<>();
 		List<IntConstant> lookupValues = new ArrayList<>();
 		while (cases.head != null) {											//Cases
 			if (cases.head.pat != null) {
-				lookupValues.add((IntConstant) JavaUtil.getConstant((JCLiteral)cases.head.pat));
+				if (cases.head.pat instanceof JCLiteral)
+					lookupValues.add((IntConstant) JavaUtil.getConstant((JCLiteral)cases.head.pat));
+				else {
+					//TODO operations to integer constant, see systests/java_tests/CaseWithWeirdStuff.java
+				}
 				Unit nop = Jimple.v().newNopStmt();
 				targets.add(nop);
 			}
-			else 
-				defaultTarget = Jimple.v().newNopStmt();
 			cases = cases.tail;
 		}		
 		Unit lookupSwitch = Jimple.v().newLookupSwitchStmt(key, lookupValues, targets, defaultTarget);
@@ -790,10 +795,9 @@ public class JavaMethodSource implements MethodSource {
 			targets.remove(0);
 			cases = cases.tail;
 		}
-		if (cases.head.pat == null) {
-			units.add(defaultTarget);											//Default
+		units.add(defaultTarget);	
+		if (cases.head!= null && cases.head.pat == null)								//Default
 			nextNode(cases.head.stats);
-		}
 		units.add(nopBreak);
 		breakLoop.remove(breakLoop.size()-1);
 		return lookupSwitch;
@@ -1069,7 +1073,13 @@ public class JavaMethodSource implements MethodSource {
 		loopContinue.add(nop);
 		Unit jump = Jimple.v().newGotoStmt(nop);
 		units.add(jump);
-		Unit target = processBlock(node.body);
+		Unit target = Jimple.v().newNopStmt();
+		units.add(target);
+		processBlock(node.body);
+		if (!(condition instanceof ConditionExpr)) {												//If the test-value isn't a condition, do value==1
+			Value bin = checkForExprChain(condition);
+			condition = Jimple.v().newEqExpr(bin, IntConstant.v(1));
+		}
 		IfStmt ifStmt = Jimple.v().newIfStmt(condition, target);
 		units.add(nop);
 		units.add(ifStmt);
@@ -2353,4 +2363,11 @@ public class JavaMethodSource implements MethodSource {
  * Member Reference (JCMemberReference, e.g. System.out::println)
  * Labeled Statement (JCLabeledStatement), goto reserved for java but unused
  * Erroneous (JCErroneous)
+ * Assert (JCAssert)
+ * (JCPolyExpression)
+ * Skip (JCSkip), semicolon (only implemented in JavaClassSource)
+ * (JCTypeIntersection)
+ * (JCTypeParameter)
+ * (JCTypeUnion)
+ * (JCWildcard)
  */
