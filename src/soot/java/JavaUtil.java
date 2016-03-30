@@ -223,7 +223,7 @@ public class JavaUtil {
 						returnString = entry.toString().substring(0, entry.toString().lastIndexOf(".")).replace('/', '.');
 					else if (substring.contains("$")) {
 						String subSubstring = substring.substring(substring.lastIndexOf('$') + 1);
-						if (subSubstring.equals(className)&& entry.toString().replace('/', '.').contains(packagePart))
+						if (subSubstring.equals(className) && entry.toString().replace('/', '.').contains(packagePart) && returnString==null)
 							returnString = entry.toString().substring(0, entry.toString().lastIndexOf(".")).replace('/', '.');
 					}
 				}

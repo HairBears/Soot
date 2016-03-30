@@ -446,8 +446,9 @@ public class JavaMethodSource implements MethodSource {
 		List<Type> parameterTypes = new ArrayList<>();
 		for (int i=0; i<parameter.size(); i++)
 			parameterTypes.add(parameter.get(i).getType());					//Parameter types to search matching constructor
-		if (newClasslocal==null) {
-			newClasslocal=localGenerator.generateLocal(RefType.v(node.clazz.toString()));
+		if (newClasslocal == null) {
+			Type type = JavaUtil.getType(node.clazz, deps, thisMethod.getDeclaringClass());
+			newClasslocal = localGenerator.generateLocal(type);
 		}
 		SootClass clazz = Scene.v().getSootClass(newClasslocal.getType().toString());
 		SootMethodRef method = searchMethod(clazz, "<init>", parameterTypes).makeRef();
@@ -1651,6 +1652,8 @@ public class JavaMethodSource implements MethodSource {
 			for (int i=0; i<method.parameterTypes().size(); i++) {							//e.g. ArrayList<Integer> a; a.add(3); => Integer b = Integer.valueOf(3); a.add(b);
 				Type methodParameter = method.parameterTypes().get(i);						//Or if Object is expected instead of a primitive type
 				Type inputParameter = parameterTypes.get(i);
+				if (methodParameter instanceof PrimType && inputParameter instanceof PrimType)
+					continue;
 				if (!methodParameter.equals(inputParameter) && inputParameter instanceof PrimType) {
 					Type type = JavaUtil.primToClass(inputParameter);
 					Local valueOfLocal = localGenerator.generateLocal(type);
